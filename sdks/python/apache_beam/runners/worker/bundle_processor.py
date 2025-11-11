@@ -21,6 +21,7 @@
 
 from __future__ import annotations
 
+import subprocess as sp
 import base64
 import bisect
 import collections
@@ -101,6 +102,16 @@ if TYPE_CHECKING:
   from apache_beam.transforms.core import Windowing
   from apache_beam.transforms.window import BoundedWindow
   from apache_beam.utils import windowed_value
+
+
+def get_gpu_memory():
+  command = "nvidia-smi --query-gpu=memory.free,memory.used,memory.total " \
+  "--format=csv"
+  lst = []
+  for line in sp.check_output(command.split()).decode('ascii').split('\n'):
+    lst.append(line.split(','))
+  return lst[0], lst[1]
+
 
 T = TypeVar('T')
 ConstructorFn = Callable[[
@@ -1242,6 +1253,13 @@ class BundleProcessor(object):
         # We must wait until we receive "end of stream" for each of these ops.
         expected_input_ops.append(op)
 
+    label, value = get_gpu_memory()
+    _LOGGER.info(
+        'XXX GPU Memory at the start of bundle %s: %s: %s',
+        instruction_id,
+        label,
+        value)
+
     try:
       execution_context = ExecutionContext(instruction_id=instruction_id)
       self.current_instruction_id = instruction_id
@@ -1306,6 +1324,13 @@ class BundleProcessor(object):
       for op in self.ops.values():
         _LOGGER.debug('finish %s', op)
         op.finish()
+
+      label, value = get_gpu_memory()
+      _LOGGER.info(
+          'XXX GPU Memory at the end of bundle %s: %s: %s',
+          instruction_id,
+          label,
+          value)
 
       # Close every timer output stream
       for timer_info in self.timers_info.values():
