@@ -331,7 +331,7 @@ class ModelManager:
       min_model_copies: int = 1,
       wait_timeout_seconds: float = 300.0,
       lock_timeout_seconds: float = 60.0,
-      verbose_logging: bool = False):
+      verbose_logging: bool = True):
 
     self._estimator = ResourceEstimator(
         min_data_points=min_data_points,
@@ -472,8 +472,16 @@ class ModelManager:
     with self._cv:
       # FAST PATH: Grab from idle LRU if available
       if not self._isolation_mode:
+        self.logging_info(
+            "Acquire Requested: tag=%s, priority=%d "
+            "total models count=%s",
+            tag,
+            current_priority,
+            len(self._models[tag]))
         cached_instance = self._try_grab_from_lru(tag)
         if cached_instance:
+          self.logging_info(
+              "Acquire Fast Path Hit: tag=%s ticket num=%s", tag, ticket_num)
           return cached_instance
 
       # SLOW PATH: Enqueue and wait for turn to acquire model,
@@ -565,6 +573,7 @@ class ModelManager:
       return self._spawn_new_model(tag, loader_func, is_unknown, est_cost)
 
   def release_model(self, tag: str, instance: Any):
+    self.logging_info("Releasing model: %s", tag)
     with self._cv:
       try:
         self._total_active_jobs -= 1
