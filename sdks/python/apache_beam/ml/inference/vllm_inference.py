@@ -29,6 +29,7 @@ import urllib.request
 import uuid
 from collections.abc import Callable
 from collections.abc import Iterable
+from collections.abc import Mapping
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -38,6 +39,7 @@ from openai import AsyncOpenAI
 from openai import OpenAI
 
 from apache_beam.io.filesystems import FileSystems
+from apache_beam.metrics.metric import Metrics
 from apache_beam.ml.inference.base import ModelHandler
 from apache_beam.ml.inference.base import PredictionResult
 from apache_beam.utils import subprocess_server
@@ -58,6 +60,160 @@ __all__ = [
     'VLLMCompletionsModelHandler',
     'VLLMChatModelHandler',
 ]
+
+# --- Autoscaling support (inlined for POC) ---------------------------------
+# Dataflow's horizontal autoscaler scales GPU/model pools on the process-wide
+# metric "num_loaded_models_<tag>" in the "BeamML_ModelManager" namespace (see
+# model_manager.py and
+# //dist_proc/windmill/autoscaling/horizontal_scaling_policy.cc). A single vLLM
+# server per worker always has 1 loaded copy, so instead we publish that same
+# metric with a value derived from vLLM's live request concurrency.
+_MODEL_MANAGER_METRICS_NAMESPACE = 'BeamML_ModelManager'
+_NUM_LOADED_MODELS_METRIC_PREFIX = 'num_loaded_models_'
+
+
+def _parse_prometheus_labels(label_str: str) -> dict[str, str]:
+  """Parses the ``{k="v",...}`` label section of a Prometheus sample line."""
+  labels: dict[str, str] = {}
+  i = 0
+  n = len(label_str)
+  while i < n:
+    eq = label_str.find('=', i)
+    if eq == -1:
+      break
+    name = label_str[i:eq].strip()
+    j = eq + 1
+    if j < n and label_str[j] == '"':
+      j += 1
+      value_chars = []
+      while j < n and label_str[j] != '"':
+        if label_str[j] == '\\' and j + 1 < n:
+          j += 1
+        value_chars.append(label_str[j])
+        j += 1
+      value = ''.join(value_chars)
+      j += 1  # skip closing quote
+    else:
+      comma = label_str.find(',', j)
+      comma = n if comma == -1 else comma
+      value = label_str[j:comma].strip()
+      j = comma
+    labels[name] = value
+    comma = label_str.find(',', j)
+    if comma == -1:
+      break
+    i = comma + 1
+  return labels
+
+
+def parse_prometheus_metric(
+    metrics_text: str,
+    metric_name: str,
+    label_filter: Optional[Mapping[str, str]] = None) -> Optional[float]:
+  """Sums the values of a metric from Prometheus text-format exposition.
+
+  Args:
+    metrics_text: The full body returned by the server's ``/metrics`` endpoint.
+    metric_name: The metric family name to match (e.g.
+      ``vllm:num_requests_running``).
+    label_filter: If provided, only samples whose labels contain all of these
+      key/value pairs are summed.
+
+  Returns:
+    The sum of the matching sample values, or ``None`` if the metric is absent.
+  """
+  total: Optional[float] = None
+  for raw_line in metrics_text.splitlines():
+    line = raw_line.strip()
+    if not line or line.startswith('#'):
+      continue
+    if not line.startswith(metric_name):
+      continue
+    remainder = line[len(metric_name):]
+    if remainder and remainder[0] not in (' ', '\t', '{'):
+      continue
+    labels: Mapping[str, str] = {}
+    if remainder.startswith('{'):
+      close = remainder.find('}')
+      if close == -1:
+        continue
+      labels = _parse_prometheus_labels(remainder[1:close])
+      remainder = remainder[close + 1:]
+    parts = remainder.split()
+    if not parts:
+      continue
+    try:
+      value = float(parts[0])
+    except ValueError:
+      continue
+    if label_filter and any(labels.get(k) != v
+                            for k, v in label_filter.items()):
+      continue
+    total = value if total is None else total + value
+  return total
+
+
+class NumLoadedModelsPublisher:
+  """Publishes the ``num_loaded_models_<tag>`` autoscaling metric on a timer.
+
+  ``signal_fn`` produces the value; it is polled on a background daemon thread
+  every ``poll_interval_secs``. Returning ``None`` (e.g. a transient scrape
+  failure) skips that tick and leaves the previously published value in place.
+  """
+  def __init__(
+      self,
+      tag: str,
+      signal_fn: Callable[[], Optional[float]],
+      poll_interval_secs: float = 5.0):
+    if not tag:
+      raise ValueError('num_loaded_models tag must be a non-empty string.')
+    self._metric_name = _NUM_LOADED_MODELS_METRIC_PREFIX + tag
+    self._signal_fn = signal_fn
+    self._poll_interval_secs = poll_interval_secs
+    self._stop_event = threading.Event()
+    self._thread: Optional[threading.Thread] = None
+
+  def _publish(self, value: float) -> None:
+    Metrics.distribution(
+        _MODEL_MANAGER_METRICS_NAMESPACE, self._metric_name,
+        process_wide=True).update(int(round(value)))
+
+  def _run(self) -> None:
+    while not self._stop_event.is_set():
+      try:
+        value = self._signal_fn()
+        if value is not None:
+          self._publish(value)
+      except Exception:  # pylint: disable=broad-except
+        logging.exception(
+            'Failed to publish autoscaling metric %s; will retry.',
+            self._metric_name)
+      self._stop_event.wait(self._poll_interval_secs)
+
+  def start(self) -> None:
+    """Publishes an initial 0 and starts the background polling thread."""
+    if self._thread is not None:
+      return
+    try:
+      self._publish(0)
+    except Exception:  # pylint: disable=broad-except
+      logging.exception(
+          'Failed to publish initial autoscaling metric %s.', self._metric_name)
+    self._thread = threading.Thread(
+        target=self._run, name='num-loaded-models-publisher', daemon=True)
+    self._thread.start()
+
+  def stop(self) -> None:
+    """Stops polling and publishes a final 0 so a drained worker sheds load."""
+    self._stop_event.set()
+    thread = self._thread
+    if thread is not None:
+      thread.join(timeout=self._poll_interval_secs + 5)
+      self._thread = None
+    try:
+      self._publish(0)
+    except Exception:  # pylint: disable=broad-except
+      pass
 
 
 @dataclass(frozen=True)
@@ -111,6 +267,61 @@ def getAsyncVLLMClient(port) -> AsyncOpenAI:
   )
 
 
+_VLLM_DEFAULT_AUTOSCALING_POLL_SECS = 5.0
+
+
+def _sanitize_metric_tag(name: str) -> str:
+  """Turns a model name into a metric-tag-safe token for the autoscaler.
+
+  Args:
+    name: The model name (may contain ``/``, ``:`` etc.).
+
+  Returns:
+    ``name`` with characters outside ``[A-Za-z0-9_]`` replaced by ``_``.
+  """
+  return ''.join(c if (c.isalnum() or c == '_') else '_' for c in name)
+
+
+def _scrape_vllm_load_signal(
+    port: int,
+    include_waiting: bool = True,
+    timeout_secs: float = 5.0) -> Optional[float]:
+  """Reads vLLM's live request concurrency from its Prometheus endpoint.
+
+  This is the default autoscaling signal for the vLLM handlers: the number of
+  requests the engine is currently running, optionally plus those queued
+  waiting. It is published under ``num_loaded_models_<tag>`` so Dataflow's
+  autoscaler scales on real serving load rather than the (always 1) count of
+  loaded vLLM servers.
+
+  Args:
+    port: Local port of the vLLM OpenAI-compatible server.
+    include_waiting: Whether to add ``vllm:num_requests_waiting`` to the
+      running count.
+    timeout_secs: Per-scrape HTTP timeout in seconds.
+
+  Returns:
+    The concurrency value, or ``None`` if the metric could not be scraped (e.g.
+    the server is momentarily unavailable), which the publisher treats as
+    "skip this tick".
+  """
+  url = f'http://localhost:{port}/metrics'
+  try:
+    with urllib.request.urlopen(url, timeout=timeout_secs) as response:
+      text = response.read().decode('utf-8', errors='replace')
+  except Exception:  # pylint: disable=broad-except
+    return None
+  running = parse_prometheus_metric(text, 'vllm:num_requests_running')
+  if running is None:
+    return None
+  total = running
+  if include_waiting:
+    waiting = parse_prometheus_metric(text, 'vllm:num_requests_waiting')
+    if waiting is not None:
+      total += waiting
+  return total
+
+
 # Embedded Dynamo runtime defaults proven on the smoke test: etcd discovery,
 # TCP request plane, ZMQ event plane, KV events disabled. KV-aware routing,
 # disaggregated prefill/decode, and the Planner are not active in this mode.
@@ -148,7 +359,12 @@ class _VLLMModelServer():
       model_name: str,
       vllm_server_kwargs: dict[str, Optional[str]],
       dynamo_frontend_kwargs: Optional[dict[str, Optional[str]]] = None,
-      use_dynamo: bool = False):
+      use_dynamo: bool = False,
+      autoscaling_tag: Optional[str] = None,
+      autoscaling_poll_interval_secs:
+      float = _VLLM_DEFAULT_AUTOSCALING_POLL_SECS,
+      autoscaling_include_waiting: bool = False,
+      load_signal_fn: Optional[Callable[[int], Optional[float]]] = None):
     self._model_name = model_name
     self._vllm_server_kwargs = vllm_server_kwargs
     self._dynamo_frontend_kwargs = dynamo_frontend_kwargs or {}
@@ -161,8 +377,32 @@ class _VLLMModelServer():
     self._server_port: int = -1
     self._server_process_lock = threading.RLock()
     self._use_dynamo = use_dynamo
+    self._autoscaling_include_waiting = autoscaling_include_waiting
+    self._load_signal_fn = load_signal_fn
+    # Publishes the num_loaded_models_<tag> autoscaling signal derived from the
+    # vLLM server's live request-concurrency metrics. Started once the server
+    # is confirmed up (see start_server). None disables the metric entirely.
+    self._num_loaded_models_publisher: Optional[NumLoadedModelsPublisher] = (
+        NumLoadedModelsPublisher(
+            tag=autoscaling_tag,
+            signal_fn=self._get_load_signal,
+            poll_interval_secs=autoscaling_poll_interval_secs)
+        if autoscaling_tag else None)
 
     self.start_server()
+
+  def _get_load_signal(self) -> Optional[float]:
+    """Returns the current load-derived num_loaded_models value, or None.
+
+    Returns None while the server is down/restarting so the publisher skips the
+    tick instead of reporting a misleading 0.
+    """
+    if not self._server_started or self._server_port < 0:
+      return None
+    if self._load_signal_fn is not None:
+      return self._load_signal_fn(self._server_port)
+    return _scrape_vllm_load_signal(
+        self._server_port, include_waiting=self._autoscaling_include_waiting)
 
   @staticmethod
   def _stop_process(process: Optional[subprocess.Popen]) -> None:
@@ -214,6 +454,11 @@ class _VLLMModelServer():
     # __del__ may run during interpreter shutdown when module globals can
     # already be torn down; swallow any cleanup failures so we don't print
     # a noisy traceback.
+    try:
+      if self._num_loaded_models_publisher is not None:
+        self._num_loaded_models_publisher.stop()
+    except Exception:  # pylint: disable=broad-except
+      pass
     try:
       self._stop_processes()
     except Exception:  # pylint: disable=broad-except
@@ -322,6 +567,8 @@ class _VLLMModelServer():
           self._dynamo_process, _ = start_process(server_cmd)
 
       self.check_connectivity(retries)
+      if self._num_loaded_models_publisher is not None:
+        self._num_loaded_models_publisher.start()
 
   def get_server_port(self) -> int:
     if not self._server_started:
@@ -374,7 +621,13 @@ class VLLMCompletionsModelHandler(ModelHandler[str,
       max_batch_weight: Optional[int] = None,
       element_size_fn: Optional[Callable[[Any], int]] = None,
       batch_length_fn: Optional[Callable[[Any], int]] = None,
-      batch_bucket_boundaries: Optional[list[int]] = None):
+      batch_bucket_boundaries: Optional[list[int]] = None,
+      enable_autoscaling_metric: bool = True,
+      autoscaling_tag: Optional[str] = None,
+      autoscaling_poll_interval_secs:
+      float = _VLLM_DEFAULT_AUTOSCALING_POLL_SECS,
+      autoscaling_include_waiting: bool = False,
+      load_signal_fn: Optional[Callable[[int], Optional[float]]] = None):
     """Implementation of the ModelHandler interface for vLLM using text as
     input.
 
@@ -439,13 +692,27 @@ class VLLMCompletionsModelHandler(ModelHandler[str,
         **_DYNAMO_FRONTEND_DEFAULT_KWARGS, **(dynamo_frontend_kwargs or {})
     }
     self._use_dynamo = use_dynamo
+    self._enable_autoscaling_metric = enable_autoscaling_metric
+    self._autoscaling_tag = autoscaling_tag
+    self._autoscaling_poll_interval_secs = autoscaling_poll_interval_secs
+    self._autoscaling_include_waiting = autoscaling_include_waiting
+    self._load_signal_fn = load_signal_fn
+
+  def _resolved_autoscaling_tag(self) -> Optional[str]:
+    if not self._enable_autoscaling_metric:
+      return None
+    return self._autoscaling_tag or _sanitize_metric_tag(self._model_name)
 
   def load_model(self) -> _VLLMModelServer:
     return _VLLMModelServer(
         self._model_name,
         self._vllm_server_kwargs,
         self._dynamo_frontend_kwargs,
-        self._use_dynamo)
+        self._use_dynamo,
+        autoscaling_tag=self._resolved_autoscaling_tag(),
+        autoscaling_poll_interval_secs=self._autoscaling_poll_interval_secs,
+        autoscaling_include_waiting=self._autoscaling_include_waiting,
+        load_signal_fn=self._load_signal_fn)
 
   async def _async_run_inference(
       self,
@@ -514,7 +781,13 @@ class VLLMChatModelHandler(ModelHandler[Sequence[OpenAIChatMessage],
       max_batch_weight: Optional[int] = None,
       element_size_fn: Optional[Callable[[Any], int]] = None,
       batch_length_fn: Optional[Callable[[Any], int]] = None,
-      batch_bucket_boundaries: Optional[list[int]] = None):
+      batch_bucket_boundaries: Optional[list[int]] = None,
+      enable_autoscaling_metric: bool = True,
+      autoscaling_tag: Optional[str] = None,
+      autoscaling_poll_interval_secs:
+      float = _VLLM_DEFAULT_AUTOSCALING_POLL_SECS,
+      autoscaling_include_waiting: bool = False,
+      load_signal_fn: Optional[Callable[[int], Optional[float]]] = None):
     """ Implementation of the ModelHandler interface for vLLM using previous
     messages as input.
 
@@ -584,6 +857,16 @@ class VLLMChatModelHandler(ModelHandler[Sequence[OpenAIChatMessage],
     self._chat_template_path = chat_template_path
     self._chat_file = f'template-{uuid.uuid4().hex}.jinja'
     self._use_dynamo = use_dynamo
+    self._enable_autoscaling_metric = enable_autoscaling_metric
+    self._autoscaling_tag = autoscaling_tag
+    self._autoscaling_poll_interval_secs = autoscaling_poll_interval_secs
+    self._autoscaling_include_waiting = autoscaling_include_waiting
+    self._load_signal_fn = load_signal_fn
+
+  def _resolved_autoscaling_tag(self) -> Optional[str]:
+    if not self._enable_autoscaling_metric:
+      return None
+    return self._autoscaling_tag or _sanitize_metric_tag(self._model_name)
 
   def load_model(self) -> _VLLMModelServer:
     chat_template_contents = ''
@@ -600,7 +883,11 @@ class VLLMChatModelHandler(ModelHandler[Sequence[OpenAIChatMessage],
         self._model_name,
         self._vllm_server_kwargs,
         self._dynamo_frontend_kwargs,
-        self._use_dynamo)
+        self._use_dynamo,
+        autoscaling_tag=self._resolved_autoscaling_tag(),
+        autoscaling_poll_interval_secs=self._autoscaling_poll_interval_secs,
+        autoscaling_include_waiting=self._autoscaling_include_waiting,
+        load_signal_fn=self._load_signal_fn)
 
   async def _async_run_inference(
       self,
