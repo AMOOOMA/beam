@@ -156,20 +156,44 @@ def parse_prometheus_metric(
 class NumLoadedModelsPublisher:
   """Publishes the ``num_loaded_models_<tag>`` autoscaling metric on a timer.
 
-  ``signal_fn`` produces the value; it is polled on a background daemon thread
-  every ``poll_interval_secs``. Returning ``None`` (e.g. a transient scrape
-  failure) skips that tick and leaves the previously published value in place.
+  ``signal_fn`` produces the raw load sample (e.g. requests running in
+  parallel); it is polled on a background daemon thread every
+  ``poll_interval_secs``. Returning ``None`` (e.g. a transient scrape failure)
+  skips that tick, leaving the running state and last published value unchanged.
+
+  The published value is an aggregate of the observed load, chosen so the pool
+  does not scale *down* the instant an input burst clears (which would thrash
+  and then be unable to absorb the next burst):
+
+    * ``'lifetime_max'`` -- the maximum concurrency observed over the whole
+                     pipeline lifetime (monotonic; never decays). Sizes the
+                     fleet to the worst load ever seen and holds it. Default.
+    * ``'max'``   -- peak concurrency in the trailing
+                     ``aggregation_window_secs`` window; decays that long after
+                     load drops.
+    * ``'p<NN>'`` -- a windowed percentile, e.g. ``'p90'``. Smoother than max:
+                     ignores brief spikes and decays as low samples fill it.
+    * ``'mean'``  -- the average over the window.
+    * ``'last'``  -- the raw last sample (no smoothing; original behavior).
   """
   def __init__(
       self,
       tag: str,
       signal_fn: Callable[[], Optional[float]],
-      poll_interval_secs: float = 5.0):
+      poll_interval_secs: float = 5.0,
+      aggregation: str = 'lifetime_max',
+      aggregation_window_secs: float = 60.0):
     if not tag:
       raise ValueError('num_loaded_models tag must be a non-empty string.')
     self._metric_name = _NUM_LOADED_MODELS_METRIC_PREFIX + tag
     self._signal_fn = signal_fn
     self._poll_interval_secs = poll_interval_secs
+    self._aggregation = (aggregation or 'lifetime_max').lower()
+    self._aggregation_window_secs = max(float(aggregation_window_secs), 0.0)
+    # Trailing (timestamp, value) samples for the windowed aggregation modes.
+    self._samples: list[tuple[float, float]] = []
+    # Monotonic peak for the 'lifetime_max' mode (no sample retention).
+    self._lifetime_max: Optional[float] = None
     self._stop_event = threading.Event()
     self._thread: Optional[threading.Thread] = None
 
@@ -178,12 +202,59 @@ class NumLoadedModelsPublisher:
         _MODEL_MANAGER_METRICS_NAMESPACE, self._metric_name,
         process_wide=True).update(int(round(value)))
 
+  def _aggregate(self, now: float) -> Optional[float]:
+    """Aggregates in-window samples per ``self._aggregation``.
+
+    Evicts samples older than ``aggregation_window_secs`` first, then reduces
+    the remainder.
+
+    Args:
+      now: Current timestamp used for window eviction.
+
+    Returns:
+      The aggregated value, or ``None`` if the window is empty.
+    """
+    if self._aggregation_window_secs > 0:
+      cutoff = now - self._aggregation_window_secs
+      self._samples = [(t, v) for (t, v) in self._samples if t >= cutoff]
+    values = [v for (_, v) in self._samples]
+    if not values:
+      return None
+    mode = self._aggregation
+    if mode == 'last':
+      return values[-1]
+    if mode == 'mean':
+      return sum(values) / len(values)
+    if mode.startswith('p'):
+      try:
+        q = min(max(int(mode[1:]), 0), 100)
+      except ValueError:
+        return max(values)
+      ordered = sorted(values)
+      # Nearest-rank percentile: rank = ceil(q/100 * n).
+      rank = (q * len(ordered) + 99) // 100
+      idx = min(max(rank - 1, 0), len(ordered) - 1)
+      return ordered[idx]
+    return max(values)  # 'max' and unknown modes.
+
   def _run(self) -> None:
     while not self._stop_event.is_set():
       try:
         value = self._signal_fn()
         if value is not None:
-          self._publish(value)
+          if self._aggregation == 'lifetime_max':
+            # Monotonic running max over the whole pipeline lifetime; no
+            # per-sample retention and never decays.
+            self._lifetime_max = (
+                float(value) if self._lifetime_max is None else max(
+                    self._lifetime_max, float(value)))
+            aggregate = self._lifetime_max
+          else:
+            now = time.time()
+            self._samples.append((now, float(value)))
+            aggregate = self._aggregate(now)
+          if aggregate is not None:
+            self._publish(aggregate)
       except Exception:  # pylint: disable=broad-except
         logging.exception(
             'Failed to publish autoscaling metric %s; will retry.',
@@ -268,6 +339,8 @@ def getAsyncVLLMClient(port) -> AsyncOpenAI:
 
 
 _VLLM_DEFAULT_AUTOSCALING_POLL_SECS = 5.0
+_VLLM_DEFAULT_AUTOSCALING_AGGREGATION = 'lifetime_max'
+_VLLM_DEFAULT_AUTOSCALING_WINDOW_SECS = 60.0
 
 
 def _sanitize_metric_tag(name: str) -> str:
@@ -364,6 +437,9 @@ class _VLLMModelServer():
       autoscaling_poll_interval_secs:
       float = _VLLM_DEFAULT_AUTOSCALING_POLL_SECS,
       autoscaling_include_waiting: bool = False,
+      autoscaling_aggregation: str = _VLLM_DEFAULT_AUTOSCALING_AGGREGATION,
+      autoscaling_aggregation_window_secs: float = (
+          _VLLM_DEFAULT_AUTOSCALING_WINDOW_SECS),
       load_signal_fn: Optional[Callable[[int], Optional[float]]] = None):
     self._model_name = model_name
     self._vllm_server_kwargs = vllm_server_kwargs
@@ -378,6 +454,9 @@ class _VLLMModelServer():
     self._server_process_lock = threading.RLock()
     self._use_dynamo = use_dynamo
     self._autoscaling_include_waiting = autoscaling_include_waiting
+    self._autoscaling_aggregation = autoscaling_aggregation
+    self._autoscaling_aggregation_window_secs = (
+        autoscaling_aggregation_window_secs)
     self._load_signal_fn = load_signal_fn
     # Publishes the num_loaded_models_<tag> autoscaling signal derived from the
     # vLLM server's live request-concurrency metrics. Started once the server
@@ -386,7 +465,9 @@ class _VLLMModelServer():
         NumLoadedModelsPublisher(
             tag=autoscaling_tag,
             signal_fn=self._get_load_signal,
-            poll_interval_secs=autoscaling_poll_interval_secs)
+            poll_interval_secs=autoscaling_poll_interval_secs,
+            aggregation=autoscaling_aggregation,
+            aggregation_window_secs=autoscaling_aggregation_window_secs)
         if autoscaling_tag else None)
 
     self.start_server()
@@ -627,6 +708,9 @@ class VLLMCompletionsModelHandler(ModelHandler[str,
       autoscaling_poll_interval_secs:
       float = _VLLM_DEFAULT_AUTOSCALING_POLL_SECS,
       autoscaling_include_waiting: bool = False,
+      autoscaling_aggregation: str = _VLLM_DEFAULT_AUTOSCALING_AGGREGATION,
+      autoscaling_aggregation_window_secs: float = (
+          _VLLM_DEFAULT_AUTOSCALING_WINDOW_SECS),
       load_signal_fn: Optional[Callable[[int], Optional[float]]] = None):
     """Implementation of the ModelHandler interface for vLLM using text as
     input.
@@ -675,6 +759,23 @@ class VLLMCompletionsModelHandler(ModelHandler[str,
         element for length-aware batching.
       batch_bucket_boundaries: optional. a sorted list of positive boundary
         values for length-aware batching buckets.
+      enable_autoscaling_metric: if True (default), publish the
+        ``num_loaded_models_<tag>`` autoscaling signal derived from the vLLM
+        server's live request concurrency.
+      autoscaling_tag: metric tag to publish under; defaults to a sanitized
+        ``model_name``.
+      autoscaling_poll_interval_secs: how often to sample and publish.
+      autoscaling_include_waiting: if True, add ``vllm:num_requests_waiting``
+        to the running count (default False: running only).
+      autoscaling_aggregation: how the published num_loaded_models is reduced
+        from observed concurrency -- ``'lifetime_max'`` (default; monotonic max
+        over the whole run, never decays), ``'max'``/``'p90'``/``'p95'``/
+        ``'mean'`` (over a trailing window), or ``'last'`` (raw). Avoids
+        scaling down the instant an input burst clears.
+      autoscaling_aggregation_window_secs: trailing window (seconds) for the
+        windowed modes; ignored by ``'lifetime_max'`` (default 60).
+      load_signal_fn: optional override that, given the server port, returns the
+        raw load value directly, bypassing the default metric scrape.
     """
     super().__init__(
         min_batch_size=min_batch_size,
@@ -696,6 +797,9 @@ class VLLMCompletionsModelHandler(ModelHandler[str,
     self._autoscaling_tag = autoscaling_tag
     self._autoscaling_poll_interval_secs = autoscaling_poll_interval_secs
     self._autoscaling_include_waiting = autoscaling_include_waiting
+    self._autoscaling_aggregation = autoscaling_aggregation
+    self._autoscaling_aggregation_window_secs = (
+        autoscaling_aggregation_window_secs)
     self._load_signal_fn = load_signal_fn
 
   def _resolved_autoscaling_tag(self) -> Optional[str]:
@@ -712,6 +816,9 @@ class VLLMCompletionsModelHandler(ModelHandler[str,
         autoscaling_tag=self._resolved_autoscaling_tag(),
         autoscaling_poll_interval_secs=self._autoscaling_poll_interval_secs,
         autoscaling_include_waiting=self._autoscaling_include_waiting,
+        autoscaling_aggregation=self._autoscaling_aggregation,
+        autoscaling_aggregation_window_secs=(
+            self._autoscaling_aggregation_window_secs),
         load_signal_fn=self._load_signal_fn)
 
   async def _async_run_inference(
@@ -787,6 +894,9 @@ class VLLMChatModelHandler(ModelHandler[Sequence[OpenAIChatMessage],
       autoscaling_poll_interval_secs:
       float = _VLLM_DEFAULT_AUTOSCALING_POLL_SECS,
       autoscaling_include_waiting: bool = False,
+      autoscaling_aggregation: str = _VLLM_DEFAULT_AUTOSCALING_AGGREGATION,
+      autoscaling_aggregation_window_secs: float = (
+          _VLLM_DEFAULT_AUTOSCALING_WINDOW_SECS),
       load_signal_fn: Optional[Callable[[int], Optional[float]]] = None):
     """ Implementation of the ModelHandler interface for vLLM using previous
     messages as input.
@@ -838,6 +948,23 @@ class VLLMChatModelHandler(ModelHandler[Sequence[OpenAIChatMessage],
         element for length-aware batching.
       batch_bucket_boundaries: optional. a sorted list of positive boundary
         values for length-aware batching buckets.
+      enable_autoscaling_metric: if True (default), publish the
+        ``num_loaded_models_<tag>`` autoscaling signal derived from the vLLM
+        server's live request concurrency.
+      autoscaling_tag: metric tag to publish under; defaults to a sanitized
+        ``model_name``.
+      autoscaling_poll_interval_secs: how often to sample and publish.
+      autoscaling_include_waiting: if True, add ``vllm:num_requests_waiting``
+        to the running count (default False: running only).
+      autoscaling_aggregation: how the published num_loaded_models is reduced
+        from observed concurrency -- ``'lifetime_max'`` (default; monotonic max
+        over the whole run, never decays), ``'max'``/``'p90'``/``'p95'``/
+        ``'mean'`` (over a trailing window), or ``'last'`` (raw). Avoids
+        scaling down the instant an input burst clears.
+      autoscaling_aggregation_window_secs: trailing window (seconds) for the
+        windowed modes; ignored by ``'lifetime_max'`` (default 60).
+      load_signal_fn: optional override that, given the server port, returns the
+        raw load value directly, bypassing the default metric scrape.
     """
     super().__init__(
         min_batch_size=min_batch_size,
@@ -861,6 +988,9 @@ class VLLMChatModelHandler(ModelHandler[Sequence[OpenAIChatMessage],
     self._autoscaling_tag = autoscaling_tag
     self._autoscaling_poll_interval_secs = autoscaling_poll_interval_secs
     self._autoscaling_include_waiting = autoscaling_include_waiting
+    self._autoscaling_aggregation = autoscaling_aggregation
+    self._autoscaling_aggregation_window_secs = (
+        autoscaling_aggregation_window_secs)
     self._load_signal_fn = load_signal_fn
 
   def _resolved_autoscaling_tag(self) -> Optional[str]:
@@ -887,6 +1017,9 @@ class VLLMChatModelHandler(ModelHandler[Sequence[OpenAIChatMessage],
         autoscaling_tag=self._resolved_autoscaling_tag(),
         autoscaling_poll_interval_secs=self._autoscaling_poll_interval_secs,
         autoscaling_include_waiting=self._autoscaling_include_waiting,
+        autoscaling_aggregation=self._autoscaling_aggregation,
+        autoscaling_aggregation_window_secs=(
+            self._autoscaling_aggregation_window_secs),
         load_signal_fn=self._load_signal_fn)
 
   async def _async_run_inference(
