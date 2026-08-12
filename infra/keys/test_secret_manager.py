@@ -13,15 +13,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
 import logging
-import unittest
+import os
 import time
+import unittest
+from datetime import datetime, timedelta, timezone
 from unittest import mock
-from datetime import datetime, timezone, timedelta
-from secret_manager import SecretManager, SECRET_MANAGER_LABEL, SecretManagerLoggerAdapter
-from google.cloud import secretmanager
+
 from google.api_core import exceptions
+from google.cloud import secretmanager
+from secret_manager import (
+    SECRET_MANAGER_LABEL,
+    SecretManager,
+    SecretManagerLoggerAdapter,
+)
+
 
 class TestSecretManagerLoggerAdapter(unittest.TestCase):
     """Unit tests for SecretManagerLoggerAdapter class."""

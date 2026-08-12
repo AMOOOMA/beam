@@ -109,7 +109,8 @@ def _parse_prometheus_labels(label_str: str) -> dict[str, str]:
 def parse_prometheus_metric(
     metrics_text: str,
     metric_name: str,
-    label_filter: Optional[Mapping[str, str]] = None) -> Optional[float]:
+    label_filter: Optional[Mapping[str, str]] = None,
+) -> Optional[float]:
   """Sums the values of a metric from Prometheus text-format exposition.
 
   Args:
@@ -182,7 +183,8 @@ class NumLoadedModelsPublisher:
       signal_fn: Callable[[], Optional[float]],
       poll_interval_secs: float = 5.0,
       aggregation: str = 'lifetime_max',
-      aggregation_window_secs: float = 60.0):
+      aggregation_window_secs: float = 60.0,
+  ):
     if not tag:
       raise ValueError('num_loaded_models tag must be a non-empty string.')
     self._metric_name = _NUM_LOADED_MODELS_METRIC_PREFIX + tag
@@ -258,7 +260,8 @@ class NumLoadedModelsPublisher:
       except Exception:  # pylint: disable=broad-except
         logging.exception(
             'Failed to publish autoscaling metric %s; will retry.',
-            self._metric_name)
+            self._metric_name,
+        )
       self._stop_event.wait(self._poll_interval_secs)
 
   def start(self) -> None:
@@ -341,6 +344,14 @@ def getAsyncVLLMClient(port) -> AsyncOpenAI:
 _VLLM_DEFAULT_AUTOSCALING_POLL_SECS = 5.0
 _VLLM_DEFAULT_AUTOSCALING_AGGREGATION = 'lifetime_max'
 _VLLM_DEFAULT_AUTOSCALING_WINDOW_SECS = 60.0
+# Dimensionless multiplier applied to vLLM's measured request completion RATE
+# to form the per-worker capacity for the num_loaded_models signal:
+#   reported = max(1, completion_rate_req_per_s * backlog_multiplier)
+# Windmill sizes the pool as desired = ceil(total_keys / reported), so a larger
+# multiplier lets each worker hold more backlog (fewer workers) and a smaller
+# one scales out more aggressively. Defaults to 1.0 (report raw req/s, no
+# inflation). Override per-job with $VLLM_AUTOSCALING_BACKLOG_MULTIPLIER.
+_VLLM_DEFAULT_BACKLOG_MULTIPLIER = 1.0
 
 
 def _sanitize_metric_tag(name: str) -> str:
@@ -369,8 +380,8 @@ def _scrape_vllm_load_signal(
 
   Args:
     port: Local port of the vLLM OpenAI-compatible server.
-    include_waiting: Whether to add ``vllm:num_requests_waiting`` to the
-      running count.
+    include_waiting: Whether to add ``vllm:num_requests_waiting`` to the running
+      count.
     timeout_secs: Per-scrape HTTP timeout in seconds.
 
   Returns:
@@ -393,6 +404,63 @@ def _scrape_vllm_load_signal(
     if waiting is not None:
       total += waiting
   return total
+
+
+class _VLLMCompletionRateSignal:
+  """Stateful ``num_loaded_models`` signal based on vLLM's completion rate.
+
+  Each call scrapes ``vllm:request_success_total`` from the server's
+  ``/metrics`` endpoint and returns the request completion rate observed since
+  the previous call, expressed as a per-worker message capacity
+  ``rate_req_per_s * backlog_multiplier``.
+
+  Windmill's GPU-intensive autoscaler sizes the pool as
+  ``desired = ceil(total_keys / reported)`` (see
+  //dist_proc/windmill/autoscaling/horizontal_scaling_policy.cc). Reporting
+  realized throughput -- which saturates at the replica's true serving capacity
+  -- lets the pool scale out with offered load. The previous signal (accepted
+  concurrency, ``vllm:num_requests_running``) instead saturates at
+  ``max_num_seqs``, so ``reported`` stayed large and ``desired`` collapsed to a
+  single replica that then buffered requests without bound.
+
+  Combined with the publisher's ``lifetime_max`` aggregation the reported value
+  becomes the peak sustained throughput, i.e. the maximum load the replica has
+  demonstrated it can absorb. For a rate signal a windowed aggregation
+  (``max``/``p90``) may be preferred so a transient completion burst does not
+  latch the capacity estimate high for the whole pipeline lifetime.
+  """
+
+  _COMPLETED_METRIC = 'vllm:request_success_total'
+
+  def __init__(self, backlog_multiplier: float = 1.0, min_value: int = 1):
+    self._backlog_multiplier = max(float(backlog_multiplier), 0.0)
+    self._min_value = int(min_value)
+    self._last_count: Optional[float] = None
+    self._last_ts: Optional[float] = None
+
+  def __call__(self, port: int, timeout_secs: float = 5.0) -> Optional[float]:
+    url = f'http://localhost:{port}/metrics'
+    try:
+      with urllib.request.urlopen(url, timeout=timeout_secs) as response:
+        text = response.read().decode('utf-8', errors='replace')
+    except Exception:  # pylint: disable=broad-except
+      return None
+    completed = parse_prometheus_metric(text, self._COMPLETED_METRIC)
+    if completed is None:
+      return None
+    now = time.time()
+    prev_count, prev_ts = self._last_count, self._last_ts
+    self._last_count, self._last_ts = completed, now
+    if prev_count is None or prev_ts is None:
+      # First sample only establishes a baseline; a rate needs two samples.
+      return None
+    dt = now - prev_ts
+    delta = completed - prev_count
+    if dt <= 0 or delta < 0:
+      # Clock skew or counter reset (vLLM server restart); skip this tick.
+      return None
+    rate = delta / dt  # completions per second.
+    return max(float(self._min_value), rate * self._backlog_multiplier)
 
 
 # Embedded Dynamo runtime defaults proven on the smoke test: etcd discovery,
@@ -440,7 +508,8 @@ class _VLLMModelServer():
       autoscaling_aggregation: str = _VLLM_DEFAULT_AUTOSCALING_AGGREGATION,
       autoscaling_aggregation_window_secs: float = (
           _VLLM_DEFAULT_AUTOSCALING_WINDOW_SECS),
-      load_signal_fn: Optional[Callable[[int], Optional[float]]] = None):
+      load_signal_fn: Optional[Callable[[int], Optional[float]]] = None,
+  ):
     self._model_name = model_name
     self._vllm_server_kwargs = vllm_server_kwargs
     self._dynamo_frontend_kwargs = dynamo_frontend_kwargs or {}
@@ -458,6 +527,19 @@ class _VLLMModelServer():
     self._autoscaling_aggregation_window_secs = (
         autoscaling_aggregation_window_secs)
     self._load_signal_fn = load_signal_fn
+    # Per-worker message-capacity signal derived from vLLM's request
+    # completion rate; see _VLLMCompletionRateSignal. Overridden by
+    # load_signal_fn when one is supplied.
+    try:
+      _backlog_multiplier = float(
+          os.environ.get(
+              'VLLM_AUTOSCALING_BACKLOG_MULTIPLIER',
+              _VLLM_DEFAULT_BACKLOG_MULTIPLIER,
+          ))
+    except (TypeError, ValueError):
+      _backlog_multiplier = _VLLM_DEFAULT_BACKLOG_MULTIPLIER
+    self._completion_rate_signal = _VLLMCompletionRateSignal(
+        backlog_multiplier=_backlog_multiplier)
     # Publishes the num_loaded_models_<tag> autoscaling signal derived from the
     # vLLM server's live request-concurrency metrics. Started once the server
     # is confirmed up (see start_server). None disables the metric entirely.
@@ -467,8 +549,8 @@ class _VLLMModelServer():
             signal_fn=self._get_load_signal,
             poll_interval_secs=autoscaling_poll_interval_secs,
             aggregation=autoscaling_aggregation,
-            aggregation_window_secs=autoscaling_aggregation_window_secs)
-        if autoscaling_tag else None)
+            aggregation_window_secs=autoscaling_aggregation_window_secs,
+        ) if autoscaling_tag else None)
 
     self.start_server()
 
@@ -482,8 +564,7 @@ class _VLLMModelServer():
       return None
     if self._load_signal_fn is not None:
       return self._load_signal_fn(self._server_port)
-    return _scrape_vllm_load_signal(
-        self._server_port, include_waiting=self._autoscaling_include_waiting)
+    return self._completion_rate_signal(self._server_port)
 
   @staticmethod
   def _stop_process(process: Optional[subprocess.Popen]) -> None:
@@ -711,8 +792,10 @@ class VLLMCompletionsModelHandler(ModelHandler[str,
       autoscaling_aggregation: str = _VLLM_DEFAULT_AUTOSCALING_AGGREGATION,
       autoscaling_aggregation_window_secs: float = (
           _VLLM_DEFAULT_AUTOSCALING_WINDOW_SECS),
-      load_signal_fn: Optional[Callable[[int], Optional[float]]] = None):
+      load_signal_fn: Optional[Callable[[int], Optional[float]]] = None,
+  ):
     """Implementation of the ModelHandler interface for vLLM using text as
+
     input.
 
     Example Usage::
@@ -722,39 +805,39 @@ class VLLMCompletionsModelHandler(ModelHandler[str,
     Args:
       model_name: The vLLM model. See
         https://docs.vllm.ai/en/latest/models/supported_models.html for
-        supported models.
+          supported models.
       vllm_server_kwargs: Any additional kwargs to be passed into your vllm
-        server when it is being created. When ``use_dynamo`` is disabled,
-        this is invoked using ``python -m vllm.entrypoints.openai.api_server
-        <beam provided args> <vllm_server_kwargs>``. When ``use_dynamo`` is
-        enabled, these kwargs are passed to the ``dynamo.vllm`` worker
-        process. For example, you could pass ``{'echo': 'true'}`` to prepend
-        new messages with the previous message. On ~16GB GPUs, pass lower
-        ``max-num-seqs`` and ``gpu-memory-utilization`` values (see
-        ``apache_beam.examples.inference.vllm_text_completion``). For a list
-        of possible kwargs, see
+        server when it is being created. When ``use_dynamo`` is disabled, this
+        is invoked using ``python -m vllm.entrypoints.openai.api_server <beam
+        provided args> <vllm_server_kwargs>``. When ``use_dynamo`` is enabled,
+        these kwargs are passed to the ``dynamo.vllm`` worker process. For
+        example, you could pass ``{'echo': 'true'}`` to prepend new messages
+        with the previous message. On ~16GB GPUs, pass lower ``max-num-seqs``
+        and ``gpu-memory-utilization`` values (see
+        ``apache_beam.examples.inference.vllm_text_completion``). For a list of
+        possible kwargs, see
         https://docs.vllm.ai/en/latest/serving/openai_compatible_server.html#extra-parameters-for-completions-api
       use_dynamo: Whether to use NVIDIA Dynamo as the underlying vLLM engine.
-        Requires installing Dynamo in your runtime environment
-        (``pip install ai-dynamo[vllm]``). This is an opt-in single-worker
-        embedded mode; KV-aware routing, disaggregated prefill/decode, KVBM
-        offload across nodes, the Planner, and Grove are not active in
-        embedded mode. Dynamo also requires an etcd-style discovery service:
-        when ``ETCD_ENDPOINTS`` is unset, Beam starts a local etcd, which
-        requires the ``etcd`` binary in the worker environment.
+        Requires installing Dynamo in your runtime environment (``pip install
+        ai-dynamo[vllm]``). This is an opt-in single-worker embedded mode;
+        KV-aware routing, disaggregated prefill/decode, KVBM offload across
+        nodes, the Planner, and Grove are not active in embedded mode. Dynamo
+        also requires an etcd-style discovery service: when ``ETCD_ENDPOINTS``
+        is unset, Beam starts a local etcd, which requires the ``etcd`` binary
+        in the worker environment.
       dynamo_frontend_kwargs: Additional kwargs to be passed to the
-        ``dynamo.frontend`` process when ``use_dynamo`` is enabled. By
-        default, embedded Dynamo uses etcd discovery, TCP request plane, ZMQ
-        event plane, round-robin routing, and disables router KV events.
+        ``dynamo.frontend`` process when ``use_dynamo`` is enabled. By default,
+        embedded Dynamo uses etcd discovery, TCP request plane, ZMQ event plane,
+        round-robin routing, and disables router KV events.
       min_batch_size: optional. the minimum batch size to use when batching
         inputs.
       max_batch_size: optional. the maximum batch size to use when batching
         inputs.
-      max_batch_duration_secs: optional. the maximum amount of time to buffer
-        a batch before emitting; used in streaming contexts.
+      max_batch_duration_secs: optional. the maximum amount of time to buffer a
+        batch before emitting; used in streaming contexts.
       max_batch_weight: optional. the maximum total weight of a batch.
-      element_size_fn: optional. a function that returns the size (weight) of
-        an element.
+      element_size_fn: optional. a function that returns the size (weight) of an
+        element.
       batch_length_fn: optional. a callable that returns the length of an
         element for length-aware batching.
       batch_bucket_boundaries: optional. a sorted list of positive boundary
@@ -765,13 +848,13 @@ class VLLMCompletionsModelHandler(ModelHandler[str,
       autoscaling_tag: metric tag to publish under; defaults to a sanitized
         ``model_name``.
       autoscaling_poll_interval_secs: how often to sample and publish.
-      autoscaling_include_waiting: if True, add ``vllm:num_requests_waiting``
-        to the running count (default False: running only).
+      autoscaling_include_waiting: if True, add ``vllm:num_requests_waiting`` to
+        the running count (default False: running only).
       autoscaling_aggregation: how the published num_loaded_models is reduced
         from observed concurrency -- ``'lifetime_max'`` (default; monotonic max
         over the whole run, never decays), ``'max'``/``'p90'``/``'p95'``/
-        ``'mean'`` (over a trailing window), or ``'last'`` (raw). Avoids
-        scaling down the instant an input burst clears.
+        ``'mean'`` (over a trailing window), or ``'last'`` (raw). Avoids scaling
+        down the instant an input burst clears.
       autoscaling_aggregation_window_secs: trailing window (seconds) for the
         windowed modes; ignored by ``'lifetime_max'`` (default 60).
       load_signal_fn: optional override that, given the server port, returns the
@@ -819,7 +902,8 @@ class VLLMCompletionsModelHandler(ModelHandler[str,
         autoscaling_aggregation=self._autoscaling_aggregation,
         autoscaling_aggregation_window_secs=(
             self._autoscaling_aggregation_window_secs),
-        load_signal_fn=self._load_signal_fn)
+        load_signal_fn=self._load_signal_fn,
+    )
 
   async def _async_run_inference(
       self,
@@ -897,8 +981,10 @@ class VLLMChatModelHandler(ModelHandler[Sequence[OpenAIChatMessage],
       autoscaling_aggregation: str = _VLLM_DEFAULT_AUTOSCALING_AGGREGATION,
       autoscaling_aggregation_window_secs: float = (
           _VLLM_DEFAULT_AUTOSCALING_WINDOW_SECS),
-      load_signal_fn: Optional[Callable[[int], Optional[float]]] = None):
-    """ Implementation of the ModelHandler interface for vLLM using previous
+      load_signal_fn: Optional[Callable[[int], Optional[float]]] = None,
+  ):
+    """Implementation of the ModelHandler interface for vLLM using previous
+
     messages as input.
 
     Example Usage::
@@ -908,42 +994,41 @@ class VLLMChatModelHandler(ModelHandler[Sequence[OpenAIChatMessage],
     Args:
       model_name: The vLLM model. See
         https://docs.vllm.ai/en/latest/models/supported_models.html for
-        supported models.
+          supported models.
       chat_template_path: Path to a chat template. This file must be accessible
-        from your runner's execution environment, so it is recommended to use
-        a cloud based file storage system (e.g. Google Cloud Storage).
-        For info on chat templates, see:
+        from your runner's execution environment, so it is recommended to use a
+        cloud based file storage system (e.g. Google Cloud Storage). For info on
+        chat templates, see:
         https://docs.vllm.ai/en/latest/serving/openai_compatible_server.html#chat-template
       vllm_server_kwargs: Any additional kwargs to be passed into your vllm
-        server when it is being created. When ``use_dynamo`` is disabled,
-        this is invoked using ``python -m vllm.entrypoints.openai.api_server
-        <beam provided args> <vllm_server_kwargs>``. When ``use_dynamo`` is
-        enabled, these kwargs are passed to the ``dynamo.vllm`` worker
-        process. For example, you could pass ``{'echo': 'true'}`` to prepend
-        new messages with the previous message. For a list of possible
-        kwargs, see
+        server when it is being created. When ``use_dynamo`` is disabled, this
+        is invoked using ``python -m vllm.entrypoints.openai.api_server <beam
+        provided args> <vllm_server_kwargs>``. When ``use_dynamo`` is enabled,
+        these kwargs are passed to the ``dynamo.vllm`` worker process. For
+        example, you could pass ``{'echo': 'true'}`` to prepend new messages
+        with the previous message. For a list of possible kwargs, see
         https://docs.vllm.ai/en/latest/serving/openai_compatible_server.html#extra-parameters-for-chat-api
       use_dynamo: Whether to use NVIDIA Dynamo as the underlying vLLM engine.
-        Requires installing Dynamo in your runtime environment
-        (``pip install ai-dynamo[vllm]``). This is an opt-in single-worker
-        embedded mode; KV-aware routing, disaggregated prefill/decode, KVBM
-        offload across nodes, the Planner, and Grove are not active in
-        embedded mode. Dynamo also requires an etcd-style discovery service:
-        when ``ETCD_ENDPOINTS`` is unset, Beam starts a local etcd, which
-        requires the ``etcd`` binary in the worker environment.
+        Requires installing Dynamo in your runtime environment (``pip install
+        ai-dynamo[vllm]``). This is an opt-in single-worker embedded mode;
+        KV-aware routing, disaggregated prefill/decode, KVBM offload across
+        nodes, the Planner, and Grove are not active in embedded mode. Dynamo
+        also requires an etcd-style discovery service: when ``ETCD_ENDPOINTS``
+        is unset, Beam starts a local etcd, which requires the ``etcd`` binary
+        in the worker environment.
       dynamo_frontend_kwargs: Additional kwargs to be passed to the
-        ``dynamo.frontend`` process when ``use_dynamo`` is enabled. By
-        default, embedded Dynamo uses etcd discovery, TCP request plane, ZMQ
-        event plane, round-robin routing, and disables router KV events.
+        ``dynamo.frontend`` process when ``use_dynamo`` is enabled. By default,
+        embedded Dynamo uses etcd discovery, TCP request plane, ZMQ event plane,
+        round-robin routing, and disables router KV events.
       min_batch_size: optional. the minimum batch size to use when batching
         inputs.
       max_batch_size: optional. the maximum batch size to use when batching
         inputs.
-      max_batch_duration_secs: optional. the maximum amount of time to buffer
-        a batch before emitting; used in streaming contexts.
+      max_batch_duration_secs: optional. the maximum amount of time to buffer a
+        batch before emitting; used in streaming contexts.
       max_batch_weight: optional. the maximum total weight of a batch.
-      element_size_fn: optional. a function that returns the size (weight) of
-        an element.
+      element_size_fn: optional. a function that returns the size (weight) of an
+        element.
       batch_length_fn: optional. a callable that returns the length of an
         element for length-aware batching.
       batch_bucket_boundaries: optional. a sorted list of positive boundary
@@ -954,13 +1039,13 @@ class VLLMChatModelHandler(ModelHandler[Sequence[OpenAIChatMessage],
       autoscaling_tag: metric tag to publish under; defaults to a sanitized
         ``model_name``.
       autoscaling_poll_interval_secs: how often to sample and publish.
-      autoscaling_include_waiting: if True, add ``vllm:num_requests_waiting``
-        to the running count (default False: running only).
+      autoscaling_include_waiting: if True, add ``vllm:num_requests_waiting`` to
+        the running count (default False: running only).
       autoscaling_aggregation: how the published num_loaded_models is reduced
         from observed concurrency -- ``'lifetime_max'`` (default; monotonic max
         over the whole run, never decays), ``'max'``/``'p90'``/``'p95'``/
-        ``'mean'`` (over a trailing window), or ``'last'`` (raw). Avoids
-        scaling down the instant an input burst clears.
+        ``'mean'`` (over a trailing window), or ``'last'`` (raw). Avoids scaling
+        down the instant an input burst clears.
       autoscaling_aggregation_window_secs: trailing window (seconds) for the
         windowed modes; ignored by ``'lifetime_max'`` (default 60).
       load_signal_fn: optional override that, given the server port, returns the
@@ -1020,7 +1105,8 @@ class VLLMChatModelHandler(ModelHandler[Sequence[OpenAIChatMessage],
         autoscaling_aggregation=self._autoscaling_aggregation,
         autoscaling_aggregation_window_secs=(
             self._autoscaling_aggregation_window_secs),
-        load_signal_fn=self._load_signal_fn)
+        load_signal_fn=self._load_signal_fn,
+    )
 
   async def _async_run_inference(
       self,

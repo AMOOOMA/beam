@@ -12,47 +12,45 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from typing import Dict, List, Any, Optional
+from unittest import mock
 from unittest.mock import mock_open
 
-import mock
-import pytest
 import pydantic
-
+import pytest
 from api.v1 import api_pb2
 from api.v1.api_pb2 import (
-    SDK_UNSPECIFIED,
-    STATUS_UNSPECIFIED,
-    STATUS_VALIDATING,
-    STATUS_FINISHED,
     PRECOMPILED_OBJECT_TYPE_EXAMPLE,
     PRECOMPILED_OBJECT_TYPE_KATA,
     PRECOMPILED_OBJECT_TYPE_UNIT_TEST,
+    SDK_UNSPECIFIED,
+    STATUS_FINISHED,
+    STATUS_UNSPECIFIED,
+    STATUS_VALIDATING,
 )
 from grpc_client import GRPCClient
+from helper import (
+    ConflictingDatasetsError,
+    DuplicatesError,
+    Example,
+    Tag,
+    _check_no_nested,
+    _get_object_type,
+    _load_example,
+    find_examples,
+    get_tag,
+    update_example_status,
+    validate_examples_for_conflicting_datasets,
+    validate_examples_for_duplicates_by_name,
+)
 from models import (
     ComplexityEnum,
-    SdkEnum,
-    Emulator,
-    Topic,
-    EmulatorType,
     Dataset,
     DatasetFormat,
     DatasetLocation,
-)
-from helper import (
-    find_examples,
-    Example,
-    _load_example,
-    get_tag,
-    Tag,
-    _check_no_nested,
-    update_example_status,
-    _get_object_type,
-    validate_examples_for_duplicates_by_name,
-    validate_examples_for_conflicting_datasets,
-    DuplicatesError,
-    ConflictingDatasetsError,
+    Emulator,
+    EmulatorType,
+    SdkEnum,
+    Topic,
 )
 
 
@@ -699,25 +697,12 @@ def test_validate_example_fields_when_dataset_name_is_invalid(create_test_tag):
 def test_get_tag_with_datasets():
     tag = get_tag("../../examples/MOCK_EXAMPLE/main.java")
     assert tag == Tag(
-        **{
-            "filepath": "../../examples/MOCK_EXAMPLE/main.java",
-            "line_start": 2,
-            "line_finish": 25,
-            "name": "KafkaWordCount",
-            "description": "Test example with Apache Kafka",
-            "multifile": False,
-            "context_line": 55,
-            "categories": ["Filtering", "Options", "Quickstart"],
-            "complexity": "MEDIUM",
-            "tags": ["filter", "strings", "emulator"],
-            "emulators": [
+        filepath="../../examples/MOCK_EXAMPLE/main.java", line_start=2, line_finish=25, name="KafkaWordCount", description="Test example with Apache Kafka", multifile=False, context_line=55, categories=["Filtering", "Options", "Quickstart"], complexity="MEDIUM", tags=["filter", "strings", "emulator"], emulators=[
                 {
                     "type": "kafka",
                     "topic": {"id": "topic_1", "source_dataset": "dataset_id_1"},
                 }
-            ],
-            "datasets": {"dataset_id_1": {"location": "local", "format": "json"}},
-        },
+            ], datasets={"dataset_id_1": {"location": "local", "format": "json"}},
     )
 
 
@@ -752,18 +737,7 @@ def test_get_tag_with_datasets():
 def test_get_tag_multifile():
     tag = get_tag("../../examples/MOCK_EXAMPLE/main.java")
     assert tag == Tag(
-        **{
-            "filepath": "../../examples/MOCK_EXAMPLE/main.java",
-            "line_start": 2,
-            "line_finish": 21,
-            "name": "MultifileExample",
-            "description": "Test example with imports",
-            "multifile": True,
-            "context_line": 55,
-            "categories": ["Filtering", "Options", "Quickstart"],
-            "complexity": "MEDIUM",
-            "tags": ["filter", "strings", "emulator"],
-            "files": [
+        filepath="../../examples/MOCK_EXAMPLE/main.java", line_start=2, line_finish=21, name="MultifileExample", description="Test example with imports", multifile=True, context_line=55, categories=["Filtering", "Options", "Quickstart"], complexity="MEDIUM", tags=["filter", "strings", "emulator"], files=[
                 {
                     "name": "utils.java",
                     "context_line": 51,
@@ -773,7 +747,6 @@ def test_get_tag_multifile():
                     "context_line": 52,
                 },
             ],
-        },
     )
 
 @mock.patch(

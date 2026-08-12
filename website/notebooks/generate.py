@@ -30,10 +30,11 @@
 # You have to commit the generated notebooks after generating them.
 
 import logging
-import md2ipynb
-import nbformat
 import os
 import sys
+
+import md2ipynb
+import nbformat
 import yaml
 
 docs_logo_url = 'https://beam.apache.org/images/logos/full-color/name-bottom/beam-logo-full-color-name-bottom-100.png'
@@ -59,7 +60,7 @@ def run(docs, root_dir, variables=None,
 
       # Create a new notebook from the Markdown file contents.
       input_file = basename + '.md'
-      ipynb_file = '/'.join([outputs_dir, '{}-{}.ipynb'.format(basename, lang)])
+      ipynb_file = '/'.join([outputs_dir, f'{basename}-{lang}.ipynb'])
       try:
         notebook = md2ipynb.new_notebook(
             input_file=os.path.join(inputs_dir, input_file),
@@ -74,7 +75,7 @@ def run(docs, root_dir, variables=None,
                 + os.path.relpath(ipynb_file, root_dir),
             include_dir=include_dir,
         )
-        logging.info('{} succeeded'.format(input_file))
+        logging.info(f'{input_file} succeeded')
 
         # Write the notebook to file.
         output_dir = os.path.dirname(ipynb_file)
@@ -83,25 +84,24 @@ def run(docs, root_dir, variables=None,
         with open(ipynb_file, 'w') as f:
           nbformat.write(notebook, f)
       except Exception as e:
-        logging.error('{} failed: {}'.format(input_file, e))
+        logging.error(f'{input_file} failed: {e}')
         errors.append((input_file, e))
 
   if errors:
     import traceback
     sys.stdout.flush()
     sys.stderr.flush()
-    print('')
+    print()
     print('=' * 60)
     print(' Errors')
     for input_file, e in errors:
-      print('')
+      print()
       print(input_file)
       print('-' * len(input_file))
       traceback.print_exception(type(e), e, e.__traceback__)
 
-  print('')
-  print('{} files processed ({} succeeded, {} failed)'.format(
-    len(docs), len(docs) - len(errors), len(errors)))
+  print()
+  print(f'{len(docs)} files processed ({len(docs) - len(errors)} succeeded, {len(errors)} failed)')
 
 
 if __name__ == '__main__':

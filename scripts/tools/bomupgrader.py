@@ -21,6 +21,7 @@ import re
 import subprocess
 import sys
 import urllib.request
+
 """
 This Python script is used for upgrading the GCP-BOM in BeamModulePlugin.
 Specifically, it
@@ -220,8 +221,7 @@ configurations.implementation.canBeResolved = true
     subp = subprocess.run([
         self.runnable,
         *(
-            '-q dependencies --configuration implementation --console=plain'.
-            split())
+            ['-q', 'dependencies', '--configuration', 'implementation', '--console=plain'])
     ],
                           cwd=self.BUILD_DIR,
                           stdout=subprocess.PIPE)
@@ -229,7 +229,7 @@ configurations.implementation.canBeResolved = true
     result = subp.stdout.decode('utf-8')
     # example line: |    +--- com.google.guava:guava:32.1.3-android -> 32.1.3-jre (*)
     logging.debug(result)
-    get_dep_line = re.compile('\s+([\w\-.]+:[\w\-.]+):(.+)')
+    get_dep_line = re.compile(r'\s+([\w\-.]+:[\w\-.]+):(.+)')
 
     for line in result.splitlines():
       # search self.set_deps version
@@ -326,25 +326,25 @@ configurations.implementation.canBeResolved = true
     otel_version = self._get_opentelemetry_version()
     otel_license_url = (
         'https://raw.githubusercontent.com/open-telemetry/'
-        'opentelemetry-java/v{}/LICENSE'.format(otel_version)
+        f'opentelemetry-java/v{otel_version}/LICENSE'
         if otel_version else None)
-    otel_license_line = '    license: "{}"\n'.format(otel_license_url)
+    otel_license_line = f'    license: "{otel_license_url}"\n'
 
     for idx, line in enumerate(lines):
       stripped = line.strip()
       if stripped == 'libraries-bom:':
         lines[idx + 1] = re.sub(
-            r'[\'"]\d[\d\.]+[\'"]', "'{}'".format(self.bom_version),
+            r'[\'"]\d[\d\.]+[\'"]', f"'{self.bom_version}'",
             lines[idx + 1])
         continue
       if otel_version and stripped == 'opentelemetry-bom:':
         lines[idx + 1] = re.sub(
-            r"'[\d\.]+'", "'{}'".format(otel_version), lines[idx + 1])
+            r"'[\d\.]+'", f"'{otel_version}'", lines[idx + 1])
         lines[idx + 2] = otel_license_line
         continue
       if otel_version and stripped == 'opentelemetry-bom-alpha:':
         lines[idx + 1] = re.sub(
-            r"'[\d\.]+-alpha'", "'{}-alpha'".format(otel_version),
+            r"'[\d\.]+-alpha'", f"'{otel_version}-alpha'",
             lines[idx + 1])
         lines[idx + 2] = otel_license_line
 

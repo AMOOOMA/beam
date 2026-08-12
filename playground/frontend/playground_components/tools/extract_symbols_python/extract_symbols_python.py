@@ -18,9 +18,8 @@
 import argparse
 import ast
 import os
+
 import yaml
-from typing import Dict
-from typing import List
 
 
 def should_include_class_node(class_node: ast.ClassDef) -> bool:
@@ -40,7 +39,7 @@ def should_include_property_node(name_node: ast.Name) -> bool:
     return True
 
 
-def get_file_symbols(file_name: str) -> Dict[str, Dict[str, List[str]]]:
+def get_file_symbols(file_name: str) -> dict[str, dict[str, list[str]]]:
     classes_dict = {}
 
     with open(file_name, 'r') as f:
@@ -89,7 +88,7 @@ def get_file_symbols(file_name: str) -> Dict[str, Dict[str, List[str]]]:
     return classes_dict
 
 
-def get_dir_symbols_recursive(dir: str) -> Dict[str, Dict[str, List[str]]]:
+def get_dir_symbols_recursive(dir: str) -> dict[str, dict[str, list[str]]]:
     class_names = {}
 
     for root, subdirs, files in os.walk(dir):

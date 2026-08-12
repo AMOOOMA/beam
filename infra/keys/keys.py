@@ -13,17 +13,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import traceback
-import yaml
-import logging
 import argparse
+import logging
 import sys
-from typing import List, TypedDict
+import traceback
+from typing import TypedDict
+
+import yaml
 from google.api_core.exceptions import PermissionDenied
+
 # Importing custom modules
 from secret_manager import SecretManager
 from service_account import ServiceAccountManager
-
 
 # --- Configuration ---
 CONFIG_FILE = 'config.yaml'
@@ -41,10 +42,10 @@ class AuthorizedUser(TypedDict):
 class ServiceAccount(TypedDict):
     account_id: str
     display_name: str
-    authorized_users: List[AuthorizedUser]
+    authorized_users: list[AuthorizedUser]
 
 class ServiceAccountsConfig(TypedDict):
-    service_accounts: List[ServiceAccount]
+    service_accounts: list[ServiceAccount]
 
 def load_config() -> ConfigDict:
     """Loads the configuration from the YAML file."""
@@ -128,7 +129,7 @@ class KeyService:
 
     # Configuration
     project_id: str
-    service_accounts: List[ServiceAccount]
+    service_accounts: list[ServiceAccount]
     enable_logging: bool
 
     # Clients

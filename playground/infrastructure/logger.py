@@ -19,7 +19,7 @@ Log configurator. Adds required handlers and configures log format.
 
 import logging
 import sys
-from logging import INFO, WARNING, ERROR, CRITICAL
+from logging import CRITICAL, ERROR, WARNING
 
 
 def setup_logger():

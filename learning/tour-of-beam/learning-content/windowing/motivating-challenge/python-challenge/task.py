@@ -27,7 +27,7 @@
 
 
 import apache_beam as beam
-from apache_beam import window
+
 
 # Output PCollection
 class Output(beam.PTransform):

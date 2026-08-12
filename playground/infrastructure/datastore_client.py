@@ -21,17 +21,14 @@ import logging
 import os.path
 from datetime import datetime
 from pathlib import Path
-from typing import List
-
-import yaml
-from google.cloud import datastore
-from tqdm import tqdm
 
 import config
-from config import Config, Origin, PrecompiledExample, DatastoreProps
-from models import Example, SdkEnum, Dataset, Emulator, ImportFile
-
+import yaml
 from api.v1 import api_pb2
+from config import Config, DatastoreProps, Origin, PrecompiledExample
+from google.cloud import datastore
+from models import Emulator, Example, ImportFile, SdkEnum
+from tqdm import tqdm
 
 
 class DatastoreException(Exception):
@@ -55,7 +52,7 @@ class DatastoreClient:
             raise KeyError("SDK_CONFIG environment variable should be specified in os")
 
     def save_to_cloud_datastore(
-        self, examples_from_rep: List[Example], sdk: SdkEnum, origin: Origin
+        self, examples_from_rep: list[Example], sdk: SdkEnum, origin: Origin
     ):
         """
         Save examples, output and meta to datastore
@@ -193,7 +190,7 @@ class DatastoreClient:
         schema_names.sort(reverse=True)
         return self._get_key(DatastoreProps.SCHEMA_KIND, schema_names[0])
 
-    def _get_all_examples(self, sdk: SdkEnum, origin: Origin) -> List[str]:
+    def _get_all_examples(self, sdk: SdkEnum, origin: Origin) -> list[str]:
         examples_ids_before_updating = []
         all_examples_query = self._datastore_client.query(
             kind=DatastoreProps.EXAMPLE_KIND
@@ -309,7 +306,7 @@ class DatastoreClient:
 
     def _pc_object_entities(
         self, example: Example, example_id: str
-    ) -> List[datastore.Entity]:
+    ) -> list[datastore.Entity]:
         entities = []
         entities.append(
             self._pc_obj_entity(
@@ -389,7 +386,7 @@ class DatastoreClient:
         )
         return nested_entity
 
-    def _snippet_datasets(self, example: Example) -> List[datastore.Entity]:
+    def _snippet_datasets(self, example: Example) -> list[datastore.Entity]:
         datasets = []
         for emulator in example.tag.emulators:
             dataset_nested_entity = self._to_dataset_nested_entity(

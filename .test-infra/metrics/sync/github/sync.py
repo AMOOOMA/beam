@@ -14,18 +14,17 @@ PostgreSQL.
 '''
 import itertools
 import os
+import re
 import socket
 import sys
 import time
 import traceback
-import re
 from datetime import datetime
 
-import requests
-import psycopg2
-
-import queries
 import ghutilities
+import psycopg2
+import queries
+import requests
 
 
 # Keeping this as reference for localhost debug
@@ -478,7 +477,7 @@ def fetchNewData():
 
         updateTime = ghutilities.datetimeFromGHTimeStr(node["updatedAt"])
 
-        currTS = currTS if currTS > updateTime else updateTime
+        currTS = max(updateTime, currTS)
 
       cursor.close()
       connection.commit()

@@ -21,6 +21,7 @@
 #
 import datetime
 import json
+
 from google.cloud import pubsub_v1, storage
 
 # Resource types
@@ -147,7 +148,6 @@ class StaleCleaner:
         """
         Different for each resource type. Delete the resource from GCP.
         """
-        pass
 
     def _active_resources(self) -> dict:
         """
@@ -156,7 +156,6 @@ class StaleCleaner:
         The key is the resource name and the value is the GoogleCloudResource object.
         The clock is for testing purposes. It gives the resources a specific creation date.
         """
-        pass
 
     def _write_resources(self, resources: dict) -> None:
         """
@@ -336,13 +335,10 @@ class PubSubSubscriptionCleaner(StaleCleaner):
             for subscription in self.client.list_subscriptions(request={"project": self.project_path}):
                 subscription_name = subscription.name
                 # Apply prefix filtering if prefixes are defined
-                if subscription.detached:
-                        d[subscription_name] = GoogleCloudResource(resource_name=subscription_name, clock=self.clock)
-                #Only attached subscriptions with the NYC taxi prefix are eligible.
-                elif any(
+                if subscription.detached or any(
                     subscription_name.startswith(f"{self.project_path}/subscriptions/{prefix}") for prefix in self.prefixes
                 ):
-                    d[subscription_name] = GoogleCloudResource(resource_name=subscription_name, clock=self.clock)
+                        d[subscription_name] = GoogleCloudResource(resource_name=subscription_name, clock=self.clock)
 
         return d
 

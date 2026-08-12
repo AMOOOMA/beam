@@ -47,8 +47,7 @@ class SplitLinesFn(beam.RestrictionProvider):
         split_size_bytes = size // 5
         while start < restriction.stop:
             split_end = start + split_size_bytes
-            if split_end >= restriction.stop:
-                split_end = restriction.stop
+            split_end = min(restriction.stop, split_end)
             yield OffsetRange(start, split_end)
             start = split_end
 

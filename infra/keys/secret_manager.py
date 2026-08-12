@@ -13,12 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import google_crc32c
 import logging
 import time
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
+
+import google_crc32c
 from google.cloud import secretmanager
-from typing import List, Union, Tuple, Dict
 
 # What the "created_by" label is set to for secrets created by this service.
 SECRET_MANAGER_LABEL = "beam-infra-secret-manager"
@@ -37,7 +37,7 @@ class SecretManager:
     grace_period: int # The grace period (in days) before a secret is considered for rotation
     max_retries: int # The maximum number of retries for API calls
     client: secretmanager.SecretManagerServiceClient # GCP Secret Manager client
-    logger: Union[logging.Logger, logging.LoggerAdapter] # Logger for logging messages
+    logger: logging.Logger | logging.LoggerAdapter # Logger for logging messages
 
     def __init__(self, project_id: str, logger: logging.Logger, rotation_interval: int = 30, grace_period: int = 7, max_retries: int = 3) -> None:
         self.project_id = project_id
@@ -48,7 +48,7 @@ class SecretManager:
         self.logger = SecretManagerLoggerAdapter(logger, {})
         self.logger.info(f"Initialized SecretManager for project '{self.project_id}'")
 
-    def _get_secret_ids(self) -> List[str]:
+    def _get_secret_ids(self) -> list[str]:
         """
         Retrieves the list of secrets from the Secret Manager and populates the `secrets_ids` list.
         This method filters secrets based on a specific label indicating they were created by this service.
@@ -227,7 +227,7 @@ class SecretManager:
 
         self.logger.info(f"Successfully deleted secret '{secret_id}'")
 
-    def is_different_user_access(self, secret_id: str, allowed_users: List[str]) -> bool:
+    def is_different_user_access(self, secret_id: str, allowed_users: list[str]) -> bool:
         """
         Checks if the current access policy of a secret allows only the specified users to read it.
         This is used to determine if an update is needed.
@@ -266,7 +266,7 @@ class SecretManager:
         self.logger.debug(f"Access for secret '{secret_id}' differs: {is_different}")
         return is_different
 
-    def update_secret_access(self, secret_id: str, allowed_users: List[str]) -> None:
+    def update_secret_access(self, secret_id: str, allowed_users: list[str]) -> None:
         """
         Updates the access policy of a secret to allow only the specified users to read it.
         Any existing users will be removed and replaced with the new list.
@@ -312,7 +312,7 @@ class SecretManager:
 
         self.logger.info(f"Successfully updated access for secret '{secret_id}' to allow users: {allowed_users}")
 
-    def _get_secret_versions(self, secret_id: str) -> List[secretmanager.SecretVersion]:
+    def _get_secret_versions(self, secret_id: str) -> list[secretmanager.SecretVersion]:
         """
        Retrieves all versions of a secret.
 
@@ -448,7 +448,7 @@ class SecretManager:
         self.logger.debug(f"Key rotation due for secret '{secret_id}': {is_due}")
         return is_due
     
-    def add_secret_version(self, secret_id: str, data_id: str, payload: Union[bytes, str]) -> str:
+    def add_secret_version(self, secret_id: str, data_id: str, payload: bytes | str) -> str:
         """
         Adds a new version to the specified secret with the given data ID and payload.
         If the secret does not exist, it will be created first. All previous versions will be disabled.
@@ -481,7 +481,7 @@ class SecretManager:
         crc32c = google_crc32c.Checksum()
         crc32c.update(payload_bytes)
 
-        self.logger.debug(f"Creating secret version with CRC32C checksum")
+        self.logger.debug("Creating secret version with CRC32C checksum")
         response = self.client.add_secret_version(
             request={
                 "parent": secret_path,
@@ -527,7 +527,7 @@ class SecretManager:
         self.logger.info(f"Successfully added version '{version_id}' to secret '{secret_id}'")
         return response.name
 
-    def get_latest_secret_version(self, secret_id: str) -> Tuple[str, bytes]:
+    def get_latest_secret_version(self, secret_id: str) -> tuple[str, bytes]:
         """
         Retrieves the latest enabled version of a secret.
 
@@ -734,7 +734,7 @@ class SecretManager:
         self.logger.info(f"Successfully destroyed version '{version_id}' of secret '{secret_id}'")
         return data_id
 
-    def purge_disabled_secret_versions(self, secret_id: str) -> List[str]:
+    def purge_disabled_secret_versions(self, secret_id: str) -> list[str]:
         """
         Purges (destroys) all disabled versions of a secret that are older than the grace period.
         To determine if a version is older than the grace period, it checks the creation time of each version,
@@ -766,7 +766,7 @@ class SecretManager:
 
         return data_ids
 
-    def cron(self) -> Dict[str, List[str]]:
+    def cron(self) -> dict[str, list[str]]:
         """
         Performs periodic maintenance tasks:
         - Purges disabled secret versions that are older than the grace period.

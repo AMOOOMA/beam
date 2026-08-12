@@ -26,12 +26,11 @@ import logging
 import os
 import sys
 from pathlib import PurePath
-from typing import List
 
 from api.v1.api_pb2 import Sdk
 from config import Config
-from helper import get_tag, load_supported_categories
 from constants import BEAM_EXAMPLE_CATEGORIES_ENV_VAR_KEY, BEAM_ROOT_DIR_ENV_VAR_KEY
+from helper import get_tag, load_supported_categories
 
 
 def parse_args() -> argparse.Namespace:
@@ -57,7 +56,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def check_in_allowlist(paths: List[PurePath], allowlist: List[PurePath]) -> bool:
+def check_in_allowlist(paths: list[PurePath], allowlist: list[PurePath]) -> bool:
     """Check if any of allowlist paths affected"""
     for path in paths:
         logging.debug("check if allowlisted: %s", path)
@@ -68,7 +67,7 @@ def check_in_allowlist(paths: List[PurePath], allowlist: List[PurePath]) -> bool
     return False
 
 
-def check_sdk_examples(paths: List[PurePath], sdk: Sdk, root_dir: str) -> bool:
+def check_sdk_examples(paths: list[PurePath], sdk: Sdk, root_dir: str) -> bool:
     """
     Determine if any of the files is an example of a given SDK
     - has appropriate suffix: *.(go|java|python|scala)

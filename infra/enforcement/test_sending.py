@@ -13,11 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import unittest
-from unittest.mock import patch, MagicMock
 import logging
+import unittest
+from unittest.mock import MagicMock, patch
+
 import requests
 from sending import SendingClient
+
 
 class TestSendingClient(unittest.TestCase):
     def setUp(self):

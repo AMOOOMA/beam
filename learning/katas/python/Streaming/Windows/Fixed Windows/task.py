@@ -30,11 +30,10 @@
 #     - event
 
 from datetime import datetime
-import pytz
 
 import apache_beam as beam
+import pytz
 from apache_beam.transforms import window
-
 
 with beam.Pipeline() as p:
 

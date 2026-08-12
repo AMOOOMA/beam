@@ -13,15 +13,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import argparse
 import datetime
 import logging
-import sys
-import yaml
-import argparse
 import os
-from typing import List, Dict, TypedDict, Optional
-from google.cloud import secretmanager
-from google.cloud import iam_admin_v1
+import sys
+from typing import TypedDict
+
+import yaml
+from google.cloud import iam_admin_v1, secretmanager
 from google.cloud.iam_admin_v1 import types
 from sending import SendingClient
 
@@ -33,15 +33,15 @@ class AuthorizedUser(TypedDict):
 class ServiceAccount(TypedDict):
     account_id: str
     display_name: str
-    authorized_users: List[AuthorizedUser]
+    authorized_users: list[AuthorizedUser]
 
 class ServiceAccountsConfig(TypedDict):
-    service_accounts: List[ServiceAccount]
+    service_accounts: list[ServiceAccount]
 
 CONFIG_FILE = "config.yml"
 
 class AccountKeysPolicyComplianceCheck:
-    def __init__(self, project_id: str, service_account_keys_file: str, logger: logging.Logger, sending_client: Optional[SendingClient] = None):
+    def __init__(self, project_id: str, service_account_keys_file: str, logger: logging.Logger, sending_client: SendingClient | None = None):
         self.project_id = project_id
         self.service_account_keys_file = service_account_keys_file
         self.logger = logger
@@ -106,7 +106,7 @@ class AccountKeysPolicyComplianceCheck:
             return username.split(":", 1)[1].strip().lower()
         return username
 
-    def _get_user_managed_keys_from_iam(self, account_email: str) -> List[str]:
+    def _get_user_managed_keys_from_iam(self, account_email: str) -> list[str]:
         """"
         Retrieves the list of user-managed keys for a given service account from IAM.
 
@@ -127,7 +127,7 @@ class AccountKeysPolicyComplianceCheck:
             self.logger.error(f"Failed to retrieve keys for service account '{account_email}': {e}")
             return []
 
-    def _get_verified_keys_from_secret_manager(self, secret_name: str) -> List[str]:
+    def _get_verified_keys_from_secret_manager(self, secret_name: str) -> list[str]:
         """
         Retrieves the list of verified keys for a given service account from Secret Manager.
 
@@ -153,7 +153,7 @@ class AccountKeysPolicyComplianceCheck:
             self.logger.error(f"Failed to retrieve verified keys from Secret Manager for secret '{secret_name}': {e}")
             return []
 
-    def _get_all_live_service_accounts(self) -> List[str]:
+    def _get_all_live_service_accounts(self) -> list[str]:
         """
         Retrieves all service accounts that are currently active (not disabled) in the project.
 
@@ -177,7 +177,7 @@ class AccountKeysPolicyComplianceCheck:
             self.logger.error(f"Failed to retrieve service accounts for project {self.project_id}: {e}")
             raise
 
-    def _get_all_live_managed_secrets(self) -> List[str]:
+    def _get_all_live_managed_secrets(self) -> list[str]:
         """
         Retrieves the list of secrets from the Secret Manager that where created by the beam-secret-service
 
@@ -197,7 +197,7 @@ class AccountKeysPolicyComplianceCheck:
             self.logger.error(f"Failed to retrieve secrets for project {self.project_id}: {e}")
             raise
 
-    def _get_all_secret_authorized_users(self, secret_id: str) -> List[str]:
+    def _get_all_secret_authorized_users(self, secret_id: str) -> list[str]:
         """
         Retrieves a list of all users who have access to the secrets in the Secret Manager.
 
@@ -246,12 +246,12 @@ class AccountKeysPolicyComplianceCheck:
         except FileNotFoundError:
             self.logger.info(f"Service account keys file {self.service_account_keys_file} not found, starting with empty configuration")
             return {"service_accounts": []}
-        except IOError as e:
+        except OSError as e:
             error_msg = f"Failed to read service account keys from {self.service_account_keys_file}: {e}"
             self.logger.error(error_msg)
             raise
 
-    def _to_yaml_file(self, data: List[ServiceAccount], output_file: str, header_info: str = "") -> None:
+    def _to_yaml_file(self, data: list[ServiceAccount], output_file: str, header_info: str = "") -> None:
         """
         Writes a list of dictionaries to a YAML file.
         Include the apache license header on the files
@@ -287,11 +287,11 @@ class AccountKeysPolicyComplianceCheck:
                 yaml_data = {"service_accounts": data}
                 yaml.dump(yaml_data, file, sort_keys=False, default_flow_style=False, indent=2)
             self.logger.info(f"Successfully wrote Service Account Keys policy data to {output_file}")
-        except IOError as e:
+        except OSError as e:
             self.logger.error(f"Failed to write to {output_file}: {e}")
             
 
-    def check_compliance(self) -> List[str]:
+    def check_compliance(self) -> list[str]:
         """
         Checks the compliance of service account keys with the defined policies.
 
@@ -381,14 +381,14 @@ class AccountKeysPolicyComplianceCheck:
 
         if general_issues:
             self.logger.info(f"Found {len(general_issues)} general compliance issues. Triggering announcement...")
-            title = f"Account Keys Compliance Issue Detected"
+            title = "Account Keys Compliance Issue Detected"
             body = f"Account keys for project {self.project_id} are not compliant with the defined policies on {self.service_account_keys_file}\n\n"
             for issue in general_issues:
                 body += f"- {issue}\n"
 
             announcement = f"Dear team,\n\nThis is an automated notification about compliance issues detected in the Account Keys policy for project {self.project_id}.\n\n"
             announcement += f"We found {len(general_issues)} compliance issue(s) that need your attention.\n"
-            announcement += f"\nPlease check the GitHub issue for detailed information and take appropriate action to resolve these compliance violations."
+            announcement += "\nPlease check the GitHub issue for detailed information and take appropriate action to resolve these compliance violations."
 
             self.sending_client.create_announcement(title, body, recipient, announcement)
         if unmanaged_keys_issues:
@@ -413,14 +413,14 @@ class AccountKeysPolicyComplianceCheck:
             self.logger.info("No compliance issues found, no announcement will be printed.")
             return
 
-        title = f"Account Keys Compliance Issue Detected"
+        title = "Account Keys Compliance Issue Detected"
         body = f"Account keys for project {self.project_id} are not compliant with the defined policies on {self.service_account_keys_file}\n\n"
         for issue in diff:
             body += f"- {issue}\n"
 
         announcement = f"Dear team,\n\nThis is an automated notification about compliance issues detected in the Account Keys policy for project {self.project_id}.\n\n"
         announcement += f"We found {len(diff)} compliance issue(s) that need your attention.\n"
-        announcement += f"\nPlease check the GitHub issue for detailed information and take appropriate action to resolve these compliance violations."
+        announcement += "\nPlease check the GitHub issue for detailed information and take appropriate action to resolve these compliance violations."
 
         self.sending_client.print_announcement(title, body, recipient, announcement)
 
@@ -494,7 +494,7 @@ class AccountKeysPolicyComplianceCheck:
 
         self._to_yaml_file(deduplicated_accounts, self.service_account_keys_file, header_info="Service Account Keys")
 
-def config_process() -> Dict[str, str]:
+def config_process() -> dict[str, str]:
     with open(CONFIG_FILE, "r") as file:
         config = yaml.safe_load(file)
 

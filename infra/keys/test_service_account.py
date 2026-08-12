@@ -13,14 +13,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
 import logging
-import unittest
+import os
 import time
+import unittest
 from unittest import mock
-from service_account import ServiceAccountManager
-from google.cloud.iam_admin_v1 import types
+
 from google.api_core import exceptions
+from google.cloud.iam_admin_v1 import types
+from service_account import ServiceAccountManager
+
 
 class TestServiceAccountManagerUnit(unittest.TestCase):
     """Unit tests for ServiceAccountManager with mocked Google Cloud IAM client."""

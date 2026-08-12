@@ -12,16 +12,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import os.path
+from typing import Any
+
 import pytest
-from pytest_mock import MockerFixture
-from typing import Optional, List, Dict, Any
-
-from models import Example, SdkEnum, Tag
-
 from helper import (
     load_supported_categories,
 )
+from models import Example, SdkEnum, Tag
+from pytest_mock import MockerFixture
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -56,11 +54,11 @@ def mock_files(mocker: MockerFixture):
 @pytest.fixture
 def create_test_example(create_test_tag):
     def _create_test_example(
-            is_multifile=False, with_kafka=False, tag_meta: Optional[Dict[str, Any]] = None, **example_meta
+            is_multifile=False, with_kafka=False, tag_meta: dict[str, Any] | None = None, **example_meta
     ) -> Example:
         if tag_meta is None:
             tag_meta = {}
-        meta: Dict[str, Any] = dict(
+        meta: dict[str, Any] = dict(
             sdk=SdkEnum.JAVA,
             pipeline_id="MOCK_PIPELINE_ID",
             filepath="MOCK_FILEPATH",

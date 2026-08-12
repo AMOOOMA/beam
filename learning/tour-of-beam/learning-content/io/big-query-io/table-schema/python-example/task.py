@@ -25,7 +25,6 @@
 #   tags:
 #     - hellobeam
 import apache_beam as beam
-from apache_beam.io import WriteToBigQuery
 from apache_beam.io.gcp.internal.clients import bigquery
 
 p = beam.Pipeline()

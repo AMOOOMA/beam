@@ -14,11 +14,10 @@
 # limitations under the License.
 
 from pathlib import PurePath
-
-import mock
-import pytest
+from unittest import mock
 
 import checker
+import pytest
 from api.v1.api_pb2 import SDK_JAVA
 from checker import check_in_allowlist, check_sdk_examples
 

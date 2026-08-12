@@ -15,8 +15,8 @@
 
 import os
 import time
-import looker_sdk
 
+import looker_sdk
 from google.cloud import storage
 from looker_sdk import models40 as models
 

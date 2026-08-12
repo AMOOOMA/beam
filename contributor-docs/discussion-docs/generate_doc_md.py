@@ -39,15 +39,15 @@ installed (e.g., requests, bs4, mailbox).
 
 """
 
+import datetime
+import mailbox
 import os
 import re
-import requests
-import mailbox
-import datetime
 import sys
-
-from bs4 import BeautifulSoup
 from dataclasses import dataclass
+
+import requests
+from bs4 import BeautifulSoup
 
 LIST_NAME = "dev"
 DOMAIN = "beam.apache.org"
@@ -71,8 +71,7 @@ def download_mbox(list_name, domain, year, month):
     output_filename = f"{OUTPUT_DIR}/{list_name}@{domain}_{year}-{month:02d}.mbox"
 
     with open(output_filename, "wb") as f:
-      for chunk in response.iter_content(chunk_size=8192):
-        f.write(chunk)
+      f.writelines(response.iter_content(chunk_size=8192))
 
     print(f"Downloaded {output_filename}")
 

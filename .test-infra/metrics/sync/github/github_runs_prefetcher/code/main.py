@@ -24,19 +24,19 @@ https://console.cloud.google.com/cloudscheduler/jobs/edit/us-central1/github_wor
 """
 
 import asyncio
-import aiohttp
-import backoff
 import math
 import os
+import re
 import sys
 import time
-import re
-import psycopg2
 import uuid
-from psycopg2 import extras
-from ruamel.yaml import YAML
-from github import GithubIntegration
 from datetime import datetime, timedelta
+
+import aiohttp
+import backoff
+import psycopg2
+from github import GithubIntegration
+from ruamel.yaml import YAML
 
 DB_HOST = os.environ["DB_HOST"]
 DB_PORT = os.environ["DB_PORT"]
@@ -177,7 +177,7 @@ async def check_workflow_flakiness(workflow):
 
     print(f"Number of workflow runs to consider: {len(workflow_runs)}")
     if len(workflow_runs) < 3:
-        print(f"Insufficient number of runs for consideration")
+        print("Insufficient number of runs for consideration")
         return False
 
     success_rate = 1.0
@@ -265,24 +265,23 @@ def get_token():
 
 @backoff.on_exception(backoff.constant, aiohttp.ClientResponseError, max_tries=5)
 async def fetch(url, semaphore, params=None, headers=None, request_id=None):
-    async with semaphore:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, params=params, headers=headers) as response:
-                if response.status == 200:
-                    result = await response.json()
-                    if request_id:
-                        return request_id, result
-                    return result
-                elif response.status == 403:
-                    print(f"Retry for: {url}")
-                    headers["Authorization"] = get_token()
-                raise aiohttp.ClientResponseError(
-                    response.request_info,
-                    response.history,
-                    status=response.status,
-                    message=response.reason,
-                    headers=response.headers,
-                )
+    async with semaphore, aiohttp.ClientSession() as session:
+        async with session.get(url, params=params, headers=headers) as response:
+            if response.status == 200:
+                result = await response.json()
+                if request_id:
+                    return request_id, result
+                return result
+            elif response.status == 403:
+                print(f"Retry for: {url}")
+                headers["Authorization"] = get_token()
+            raise aiohttp.ClientResponseError(
+                response.request_info,
+                response.history,
+                status=response.status,
+                message=response.reason,
+                headers=response.headers,
+            )
 
 
 async def fetch_workflow_runs():
@@ -468,9 +467,9 @@ def save_workflows(workflows):
         CONSTRAINT fk_workflow FOREIGN KEY(workflow_id) REFERENCES {workflows_table_name}(workflow_id))\n"""
     cursor.execute(create_workflows_table_query)
     cursor.execute(create_workflow_runs_table_query)
-    grant_workflows_query = f"""
+    grant_workflows_query = """
     GRANT SELECT ON github_workflows TO kubeproxyuser_ro;"""
-    grant_workflow_runs_query = f"""
+    grant_workflow_runs_query = """
     GRANT SELECT ON github_workflow_runs TO kubeproxyuser_ro;"""
     cursor.execute(grant_workflows_query)
     cursor.execute(grant_workflow_runs_query)

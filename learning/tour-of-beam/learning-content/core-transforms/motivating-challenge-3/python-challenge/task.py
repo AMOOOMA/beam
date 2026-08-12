@@ -26,7 +26,7 @@
 #     - hellobeam
 
 import apache_beam as beam
-from apache_beam import pvalue
+
 
 # Output PCollection
 class Output(beam.PTransform):

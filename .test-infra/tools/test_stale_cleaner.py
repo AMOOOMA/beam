@@ -17,19 +17,19 @@
 #
 
 import datetime
-import unittest
 import io
 import sys
+import unittest
 from unittest import mock
+
 from stale_cleaner import (
-    GoogleCloudResource,
-    StaleCleaner,
-    PubSubTopicCleaner,
-    PubSubSubscriptionCleaner,
-    FakeClock,
     DEFAULT_TIME_THRESHOLD,
     PUBSUB_TOPIC_RESOURCE,
-    STORAGE_PREFIX
+    FakeClock,
+    GoogleCloudResource,
+    PubSubSubscriptionCleaner,
+    PubSubTopicCleaner,
+    StaleCleaner,
 )
 
 
@@ -38,7 +38,7 @@ class SilencedMock(mock.MagicMock):
     def __call__(self, *args, **kwargs):
         with mock.patch('sys.stdout', new=io.StringIO()):
             with mock.patch('sys.stderr', new=io.StringIO()):
-                return super(SilencedMock, self).__call__(*args, **kwargs)
+                return super().__call__(*args, **kwargs)
 
 # Use this context manager to silence print statements
 class SilencePrint:

@@ -12,14 +12,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import os
-from dataclasses import dataclass
-from typing import List, Tuple
-
 import argparse
-import requests
+import os
 import re
+from dataclasses import dataclass
 
+import requests
 from models import ComplexityEnum
 
 SCIO_REPOSITORY = "https://raw.githubusercontent.com/spotify/scio/"
@@ -35,12 +33,12 @@ class ScioExampleTag:
     pipeline_options: str
     default_example: bool
     context_line: int
-    categories: List[str]
+    categories: list[str]
     complexity: ComplexityEnum
-    tags: List[str]
+    tags: list[str]
 
 
-SCIO_EXAMPLES: List[ScioExampleTag] = [
+SCIO_EXAMPLES: list[ScioExampleTag] = [
     ScioExampleTag(
         filepath="scio-examples/src/main/scala/com/spotify/scio/examples/DebuggingWordCount.scala",
         name="DebuggingWordCount",
@@ -164,7 +162,7 @@ SCIO_EXAMPLES: List[ScioExampleTag] = [
 ]
 
 
-def fetch_scala_examples() -> Tuple[ScioExampleTag, str]:
+def fetch_scala_examples() -> tuple[ScioExampleTag, str]:
     """Fetch all Scala examples from the Scio repository."""
     urls = [(example, SCIO_REPOSITORY + "/" + SCIO_BRANCH + "/" + example.filepath) for example in SCIO_EXAMPLES]
     for example, url in urls:
@@ -191,7 +189,7 @@ def serialize_tag_to_yaml(tag: ScioExampleTag) -> str:
     for category in tag.categories:
         yaml += f"        - \"{category}\"\n"
     yaml += f"    complexity: {tag.complexity}\n"
-    yaml += f"    tags:\n"
+    yaml += "    tags:\n"
     for t in tag.tags:
         yaml += f"        - \"{t}\"\n"
     return yaml

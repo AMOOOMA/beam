@@ -16,10 +16,11 @@
 
  # Tests for generate_roles.py
 
-import unittest
-from unittest.mock import MagicMock
 import sys
 import types
+import unittest
+from unittest.mock import MagicMock
+
 import generate_roles
 
 # Patch yaml and google.cloud imports before importing the script
@@ -59,8 +60,8 @@ class TestGenerateRoles(unittest.TestCase):
         self.assertIn('d.e.f', role['permissions'])
 
     def test_write_role_yaml(self):
-        import tempfile
         import os
+        import tempfile
         role_data = {
             'role_id': 'test_role',
             'title': 'test_role',

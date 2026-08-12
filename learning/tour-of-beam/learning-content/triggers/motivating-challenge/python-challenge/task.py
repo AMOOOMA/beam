@@ -26,10 +26,6 @@
 #     - hellobeam
 
 import apache_beam as beam
-from apache_beam import window
-from apache_beam.transforms.trigger import AfterWatermark, AfterProcessingTime, AccumulationMode, AfterCount
-from apache_beam.transforms.window import FixedWindows
-from apache_beam.transforms import trigger
 
 
 # Output PCollection

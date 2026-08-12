@@ -75,7 +75,7 @@ def patch_notebook(full_path):
   elements = list(decoder.decode(content).items())
   first_key, _ = elements[0]
   if first_key != 'license':
-    print('Patching {}'.format(full_path))
+    print(f'Patching {full_path}')
     elements.insert(0, ('license', license_text))
 
   # Overwrite the file with the new contents.

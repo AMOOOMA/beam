@@ -13,18 +13,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import argparse
 import json
-import ssl
-import yaml
 import logging
-import smtplib
 import os
+import smtplib
+import ssl
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from google.cloud import logging_v2
-from google.cloud import storage
-from typing import List, Dict, Any
-import argparse
+from typing import Any
+
+import yaml
+from google.cloud import logging_v2, storage
 
 REPORT_SUBJECT = "Weekly IAM Security Events Report"
 REPORT_BODY_TEMPLATE = """
@@ -42,11 +42,11 @@ Automated GitHub Action
 class SinkCls:
     name: str
     description: str
-    filter_methods: List[str]
-    excluded_principals: List[str]
+    filter_methods: list[str]
+    excluded_principals: list[str]
 
-class LogAnalyzer():
-    def __init__(self, project_id: str, gcp_bucket: str, logger: logging.Logger, sinks: List[SinkCls]):
+class LogAnalyzer:
+    def __init__(self, project_id: str, gcp_bucket: str, logger: logging.Logger, sinks: list[SinkCls]):
         self.project_id = project_id
         self.bucket = gcp_bucket
         self.logger = logger
@@ -92,7 +92,7 @@ class LogAnalyzer():
         """
         logging_client = logging_v2.Client(project=self.project_id)
         filter_ = self._construct_filter(sink)
-        destination = "storage.googleapis.com/{bucket}".format(bucket=self.bucket)
+        destination = f"storage.googleapis.com/{self.bucket}"
 
         sink_client = logging_client.sink(sink.name, filter_=filter_, destination=destination)
 
@@ -155,7 +155,7 @@ class LogAnalyzer():
             self._create_log_sink(sink)
             self.logger.info(f"Initialized sink: {sink.name}")
 
-    def get_event_logs(self, days: int = 7) -> List[Dict[str, Any]]:
+    def get_event_logs(self, days: int = 7) -> list[dict[str, Any]]:
         """
         Reads and retrieves log events from the specified time range from the GCP Cloud Storage bucket.
 
@@ -270,7 +270,7 @@ class LogAnalyzer():
         except Exception as e:
             self.logger.error(f"Failed to send email report: {e}")
 
-def load_config_from_yaml(config_path: str) -> Dict[str, Any]:
+def load_config_from_yaml(config_path: str) -> dict[str, Any]:
     with open(config_path, 'r') as file:
         config = yaml.safe_load(file)
 

@@ -19,13 +19,9 @@
 
 All tests should conform to the NotebookTestCase abstract class.
 """
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
 import re
-from abc import ABC
-from abc import abstractmethod
+from abc import ABC, abstractmethod
 
 
 class NotebookTestCase(ABC):
@@ -36,7 +32,6 @@ class NotebookTestCase(ABC):
     Args:
       setup: arbitrary JSON-serializable object specified by test spec
     """
-    pass
 
   # should raise exception on failure
   @abstractmethod
@@ -48,7 +43,6 @@ class NotebookTestCase(ABC):
 
     Returns None if test succeeds, raise exception if test fails.
     """
-    pass
 
 
 ################################################################################
@@ -62,4 +56,4 @@ class RegexMatch(NotebookTestCase):
   def check(self, cell):
     if not self.regex.search(str(cell)):
       raise Exception(
-          "Could not find {} in {}".format(self.regex.pattern, cell))
+          f"Could not find {self.regex.pattern} in {cell}")

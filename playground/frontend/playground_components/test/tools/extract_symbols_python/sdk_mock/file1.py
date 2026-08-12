@@ -15,10 +15,11 @@
 
 import numpy
 
+
 class Class2:
   pass
 
-class Class1(object):
+class Class1:
   visible_field_2: numpy.int8
   visible_field_1 = []
 

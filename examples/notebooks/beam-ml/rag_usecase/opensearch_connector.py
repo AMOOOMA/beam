@@ -15,19 +15,13 @@
 # limitations under the License.
 #
 
-from __future__ import absolute_import
-
-import apache_beam as beam
-
-from apache_beam.transforms import DoFn
-from apache_beam.transforms import PTransform
-from apache_beam.transforms import Reshuffle
-
-from typing import Optional
-from opensearchpy import OpenSearch
 
 import os
+
+import apache_beam as beam
+from apache_beam.transforms import DoFn, PTransform, Reshuffle
 from dotenv import load_dotenv
+from opensearchpy import OpenSearch
 
 load_dotenv()
 
@@ -71,8 +65,8 @@ class InsertDocInOpenSearch(PTransform):
     def __init__(self,
                  host: str,
                  port: int,
-                 username: Optional[str],
-                 password: Optional[str],
+                 username: str | None,
+                 password: str | None,
                  batch_size: int = 100
                  ):
         """
@@ -149,7 +143,7 @@ class _InsertDocOpenSearchFn(DoFn):
             self.batch = list()
 
 
-class _InsertDocOpenSearchSink(object):
+class _InsertDocOpenSearchSink:
     """Class where we create Opensearch client
     and write insertion logic in Opensearch
     """
@@ -228,8 +222,8 @@ class InsertEmbeddingInOpenSearch(PTransform):
     def __init__(self,
                  host: str,
                  port: int,
-                 username: Optional[str],
-                 password: Optional[str],
+                 username: str | None,
+                 password: str | None,
                  batch_size: int = 100,
                  embedded_columns: list = []
                  ):
@@ -309,7 +303,7 @@ class _WriteEmbeddingInOpenSearchFn(DoFn):
             self.batch = list()
 
 
-class _InsertEmbeddingInOpenSearchSink(object):
+class _InsertEmbeddingInOpenSearchSink:
     """Class where we create Opensearch client
     and write text embedding  in Opensearch DB
     """
@@ -361,7 +355,7 @@ class _InsertEmbeddingInOpenSearchSink(object):
             for item in response['items']:
                 if 'error' in item['update']:
                     logger.error(f"Failed to update document ID {item['update']['_id']}: {item['update']['error']}")
-        logger.info(f'Insert Embeddings done')
+        logger.info('Insert Embeddings done')
 
     def __enter__(self):
         self._create_client()

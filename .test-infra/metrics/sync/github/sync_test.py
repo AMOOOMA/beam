@@ -11,8 +11,9 @@
 '''Tests for syncing metrics related data from GitHub.'''
 
 import unittest
-from ddt import ddt, data
+
 import ghutilities
+from ddt import data, ddt
 
 
 @ddt

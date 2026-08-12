@@ -11,14 +11,13 @@
 
 # Queries Jenkins to collect metrics and pu them in bigquery.
 import os
-import psycopg2
-import requests
 import socket
 import sys
 import time
+from datetime import datetime
 
-from datetime import datetime, timedelta
-from xml.etree import ElementTree
+import psycopg2
+import requests
 
 # Keeping this as reference for localhost debug
 # Fetching docker host machine ip for testing purposes.

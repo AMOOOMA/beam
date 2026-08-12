@@ -56,7 +56,7 @@ def parse_arguments():
   github_token = get_github_token(args.github_token_var)
 
   print("You passed following arguments:")
-  pprint.pprint({**vars(args), **{"github_token": github_token}})
+  pprint.pprint({**vars(args), "github_token": github_token})
 
   if not args.yes and not get_yes_or_no_answer("Do you want to continue?"):
     print("You said NO. Quitting ...")
@@ -248,9 +248,9 @@ def prepare_directory(artifacts_dir, skip_prompts):
   print(f"Preparing Artifacts directory: {artifacts_dir}")
   if os.path.isdir(artifacts_dir):
     question = (
-        f"Found that directory already exists.\n"
-        f"Any existing content in it will be erased. Proceed?\n"
-        f"Your answer")
+        "Found that directory already exists.\n"
+        "Any existing content in it will be erased. Proceed?\n"
+        "Your answer")
     if skip_prompts or get_yes_or_no_answer(question):
       print(f"Clearing directory: {artifacts_dir}")
       shutil.rmtree(artifacts_dir, ignore_errors=True)
@@ -264,12 +264,12 @@ def prepare_directory(artifacts_dir, skip_prompts):
 def filter_artifacts(artifacts, rc_number):
   def filter_source(artifact_name):
     if rc_number:
-      return artifact_name.startswith("source_zip_rc{}".format(rc_number))
+      return artifact_name.startswith(f"source_zip_rc{rc_number}")
     return artifact_name.startswith("source_zip") and "_rc" not in artifact_name
 
   def filter_wheels(artifact_name):
     if rc_number:
-      return artifact_name.startswith("wheelhouse-rc{}".format(rc_number))
+      return artifact_name.startswith(f"wheelhouse-rc{rc_number}")
     return artifact_name.startswith("wheelhouse") and "-rc" not in artifact_name
 
   return [a for a in artifacts if (filter_source(a["name"]) or filter_wheels(a["name"]))]
@@ -311,9 +311,8 @@ def download_single_artifact(
                    github_token,
                    return_json=False,
                    allow_redirects=True,
-                   stream=True) as r:
-    with open(target_file_path, "wb") as f:
-      shutil.copyfileobj(r.raw, f)
+                   stream=True) as r, open(target_file_path, "wb") as f:
+    shutil.copyfileobj(r.raw, f)
 
 
 def extract_single_artifact(file_path, output_dir):
@@ -345,5 +344,5 @@ if __name__ == "__main__":
     fetch_github_artifacts(run_id, repo_url, artifacts_dir, github_token, rc_number)
     print("Script finished successfully!")
     print(f"Artifacts available in directory: {artifacts_dir}")
-  except KeyboardInterrupt as e:
+  except KeyboardInterrupt:
     print("\nScript cancelled. Quitting ...")

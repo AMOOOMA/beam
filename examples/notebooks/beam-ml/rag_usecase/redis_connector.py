@@ -15,21 +15,14 @@
 # limitations under the License.
 #
 
-from __future__ import absolute_import
-
-import apache_beam as beam
-import numpy as np
-
-from apache_beam.transforms import DoFn
-from apache_beam.transforms import PTransform
-from apache_beam.transforms import Reshuffle
-
-
-import redis
-from typing import Optional
 
 # Set the logging level to reduce verbose information
 import logging
+
+import apache_beam as beam
+import numpy as np
+import redis
+from apache_beam.transforms import DoFn, PTransform, Reshuffle
 
 logging.root.setLevel(logging.INFO)
 logger = logging.getLogger(__name__)
@@ -65,7 +58,7 @@ class InsertDocInRedis(PTransform):
     def __init__(self,
                  host: str,
                  port: int,
-                 command: Optional[str] = None,
+                 command: str | None = None,
                  batch_size: int = 100
                  ):
 
@@ -105,7 +98,7 @@ class _InsertDocRedisFn(DoFn):
     def __init__(self,
                  host: str,
                  port: int,
-                 command: Optional[str] = None,
+                 command: str | None = None,
                  batch_size: int = 100
                  ):
         self.host = host
@@ -144,7 +137,7 @@ class _InsertDocRedisFn(DoFn):
             self.batch = list()
 
 
-class _InsertDocRedisSink(object):
+class _InsertDocRedisSink:
     """Class where we create redis client
     and write insertion logic in redis
     """
@@ -167,13 +160,13 @@ class _InsertDocRedisSink(object):
         with self.client.pipeline() as pipe:
             logger.info(f'Inserting documents in Redis. Total docs: {len(elements)}')
             for element in elements:
-                doc_key = f"doc_{str(element['id'])}_section_{str(element['section_id'])}"
+                doc_key = f"doc_{element['id']!s}_section_{element['section_id']!s}"
                 for k, v in element.items():
                     logger.debug(f'Inserting doc_key={doc_key}, key={k}, value={v}')
                     pipe.hset(name=doc_key, key=k, value=v)
 
             pipe.execute()
-            logger.info(f'Inserting documents complete.')
+            logger.info('Inserting documents complete.')
 
 
     def execute_command(self, command, elements):
@@ -220,7 +213,7 @@ class InsertEmbeddingInRedis(PTransform):
     def __init__(self,
                  host: str,
                  port: int,
-                 command: Optional[str] = None,
+                 command: str | None = None,
                  batch_size: int = 100,
                  embedded_columns: list = []
                  ):
@@ -263,7 +256,7 @@ class _WriteEmbeddingInRedisFn(DoFn):
     def __init__(self,
                  host: str,
                  port: int,
-                 command: Optional[str] = None,
+                 command: str | None = None,
                  batch_size: int = 100,
                  embedded_columns: list = []
                  ):
@@ -301,7 +294,7 @@ class _WriteEmbeddingInRedisFn(DoFn):
             self.batch = list()
 
 
-class _InsertEmbeddingInRedisSink(object):
+class _InsertEmbeddingInRedisSink:
     """Class where we create redis client
     and write text embedding  in redis DB
     """
@@ -325,7 +318,7 @@ class _InsertEmbeddingInRedisSink(object):
         self._create_client()
         with self.client.pipeline() as pipe:
             for element in elements:
-                doc_key = f"doc_{str(element['id'])}_section_{str(element['section_id'])}"
+                doc_key = f"doc_{element['id']!s}_section_{element['section_id']!s}"
                 for k, v in element.items():
                     if k in self.embedded_columns:
                         v = np.array(v, dtype=np.float32).tobytes()

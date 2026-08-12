@@ -13,22 +13,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import mock
+from unittest import mock
+
 import pytest
-from mock.mock import AsyncMock
-
 from api.v1.api_pb2 import (
-    SDK_JAVA,
-    STATUS_FINISHED,
-    STATUS_ERROR,
-    STATUS_VALIDATION_ERROR,
-    STATUS_PREPARATION_ERROR,
-    STATUS_RUN_TIMEOUT,
     STATUS_COMPILE_ERROR,
+    STATUS_ERROR,
+    STATUS_FINISHED,
+    STATUS_PREPARATION_ERROR,
     STATUS_RUN_ERROR,
+    STATUS_RUN_TIMEOUT,
+    STATUS_VALIDATION_ERROR,
 )
-
 from config import Origin
+from mock.mock import AsyncMock
 from models import SdkEnum
 from verify import Verifier, VerifyException
 

@@ -28,16 +28,13 @@ import os
 import shutil
 import threading
 import traceback
-import yaml
-
-from bs4 import BeautifulSoup
 from datetime import datetime
 from multiprocessing.pool import ThreadPool
-from queue import Queue
-from tenacity import retry
-from tenacity import stop_after_attempt
-from tenacity import wait_fixed
-from urllib.request import urlopen, Request, URLError, HTTPError
+from urllib.request import HTTPError, Request, URLError, urlopen
+
+import yaml
+from bs4 import BeautifulSoup
+from tenacity import retry, stop_after_attempt, wait_fixed
 
 SOURCE_CODE_REQUIRED_LICENSES = ['lgpl', 'gpl', 'cddl', 'mpl', 'gnu', 'mozilla public license']
 RETRY_NUM = 12
@@ -61,7 +58,7 @@ def pull_from_url(file_name, url, dep, no_list, use_cache=False):
     # Replace file path with absolute path to manual licenses
     if url.startswith('file://{}'):
         url = url.format(manual_license_path)
-        logging.info('Replaced local file URL with {url} for {dep}'.format(url=url, dep=dep))
+        logging.info(f'Replaced local file URL with {url} for {dep}')
 
     # Take into account opensource.org changes that cause 404 on licenses
     if 'opensource.org' in url and url.endswith('-license.php'):
@@ -90,18 +87,15 @@ def pull_from_url(file_name, url, dep, no_list, use_cache=False):
         with open(pulled_file_name, 'wb') as temp_write:
             shutil.copyfileobj(url_read, temp_write)
         logging.debug(
-            'Successfully pulled {file_name} from {url} for {dep}'.format(
-                url=url, file_name=pulled_file_name, dep=dep))
-    except URLError as e:
+            f'Successfully pulled {pulled_file_name} from {url} for {dep}')
+    except URLError:
         traceback.print_exc()
         if resolve_retry_number(pull_from_url) < RETRY_NUM:
-            logging.error('Invalid url for {dep}: {url}. Retrying...'.format(
-                url=url, dep=dep))
+            logging.error(f'Invalid url for {dep}: {url}. Retrying...')
             raise
         else:
             logging.error(
-                'Invalid url for {dep}: {url} after {n} retries.'.format(
-                    url=url, dep=dep, n=RETRY_NUM))
+                f'Invalid url for {dep}: {url} after {RETRY_NUM} retries.')
             with thread_lock:
                 no_list.append(dep)
             return
@@ -109,27 +103,25 @@ def pull_from_url(file_name, url, dep, no_list, use_cache=False):
         traceback.print_exc()
         if resolve_retry_number(pull_from_url) < RETRY_NUM:
             logging.info(
-                'Received {code} from {url} for {dep}. Retrying...'.format(
-                    code=e.code, url=url, dep=dep))
+                f'Received {e.code} from {url} for {dep}. Retrying...')
             raise
         else:
             logging.error(
-                'Received {code} from {url} for {dep} after {n} retries.'.
-                format(code=e.code, url=url, dep=dep, n=RETRY_NUM))
+                f'Received {e.code} from {url} for {dep} after {RETRY_NUM} retries.')
             with thread_lock:
                 no_list.append(dep)
             return
-    except Exception as e:
+    except Exception:
         traceback.print_exc()
         if resolve_retry_number(pull_from_url) < RETRY_NUM:
             logging.error(
-                'Error occurred when pull {file_name} from {url} for {dep}. Retrying...'
-                .format(url=url, file_name=file_name, dep=dep))
+                f'Error occurred when pull {file_name} from {url} for {dep}. Retrying...'
+                )
             raise
         else:
             logging.error(
-                'Error occurred when pull {file_name} from {url} for {dep} after {n} retries.'
-                .format(url=url, file_name=file_name, dep=dep, n=RETRY_NUM))
+                f'Error occurred when pull {file_name} from {url} for {dep} after {RETRY_NUM} retries.'
+                )
             with thread_lock:
                 no_list.append(dep)
             return
@@ -145,7 +137,7 @@ def pull_source_code(base_url, dir_name, dep):
       soup = BeautifulSoup(urlopen(Request(base_url, headers={
         'User-Agent': 'Apache Beam'})).read(), "html.parser")
     except:
-      logging.error('Error reading source base from {base_url}'.format(base_url=base_url))
+      logging.error(f'Error reading source base from {base_url}')
       raise
     source_count = 0
     for href in (a["href"] for a in soup.select("a[href]")):
@@ -153,11 +145,11 @@ def pull_source_code(base_url, dir_name, dep):
                 '.jar') and 'sources.jar' in href:  # download sources jar file only
             file_name = dir_name + '/' + href
             url = base_url + '/' + href
-            logging.debug('Pulling source from {url}'.format(url=url))
+            logging.debug(f'Pulling source from {url}')
             pull_from_url(file_name, url, dep, incorrect_source_url)
             source_count = source_count + 1
     if source_count == 0:
-      raise RuntimeError('No source found at {base_url}'.format(base_url=base_url))
+      raise RuntimeError(f'No source found at {base_url}')
 
 
 @retry(reraise=True, stop=stop_after_attempt(3))
@@ -165,8 +157,7 @@ def write_to_csv(csv_list):
     csv_columns = [
         'dependency_name', 'url_to_license', 'license_type', 'source_included'
     ]
-    csv_file = "{output_dir}/beam_java_dependency_list.csv".format(
-        output_dir=output_dir)
+    csv_file = f"{output_dir}/beam_java_dependency_list.csv"
     try:
         with open(csv_file, 'w') as csvfile:
             writer = csv.DictWriter(csvfile, fieldnames=csv_columns)
@@ -201,8 +192,7 @@ def execute(dep):
     if dep['moduleName'].lower().startswith('beam'):
       logging.debug('Skipping %s', name_version)
       return
-    dir_name = '{output_dir}/{name_version}.jar'.format(
-        output_dir=output_dir, name_version=name_version)
+    dir_name = f'{output_dir}/{name_version}.jar'
 
     # if auto pulled, directory is existing at {output_dir}
     if not os.path.isdir(dir_name):
@@ -238,8 +228,7 @@ def execute(dep):
         except:
             license_url = ''
         logging.debug(
-            'License/notice for {name_version} were pulled automatically.'.
-            format(name_version=name_version))
+            f'License/notice for {name_version} were pulled automatically.')
 
     # get license_type to decide if pull source code.
     try:
@@ -373,11 +362,9 @@ if __name__ == "__main__":
 
     end = datetime.now()
     logging.info(
-        'pull_licenses_java.py {status}. It took {sec} seconds with {threads} threads.'
-        .format(status=run_status,
-                sec=(end - start).total_seconds(),
-                threads=THREADS))
+        f'pull_licenses_java.py {run_status}. It took {(end - start).total_seconds()} seconds with {THREADS} threads.'
+        )
 
     if error_msg:
-        raise RuntimeError('{n} error(s) occurred.'.format(n=len(error_msg)),
+        raise RuntimeError(f'{len(error_msg)} error(s) occurred.',
                            error_msg)

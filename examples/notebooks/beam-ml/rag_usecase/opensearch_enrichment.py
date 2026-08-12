@@ -32,22 +32,17 @@ No backward compatibility guarantees. Everything in this module is experimental.
 """
 
 import logging
-
-
-from opensearchpy import OpenSearch
-from typing import Optional
 import os
 
 import apache_beam as beam
 from apache_beam.transforms.enrichment import EnrichmentSourceHandler
-from apache_beam.transforms.enrichment_handlers.utils import ExceptionLevel
+from opensearchpy import OpenSearch
 
 __all__ = [
     'OpenSearchEnrichmentHandler',
 ]
 
 # Set the logging level to reduce verbose information
-import logging
 
 logging.root.setLevel(logging.INFO)
 logger = logging.getLogger(__name__)
@@ -61,8 +56,8 @@ class OpenSearchEnrichmentHandler(EnrichmentSourceHandler[beam.Row, beam.Row]):
             self,
             opensearch_host: str,
             opensearch_port: int,
-            username: Optional[str],
-            password: Optional[str],
+            username: str | None,
+            password: str | None,
             index_name: str = "embeddings-index",
             vector_field: str = "text_vector",
             k: int = 1,

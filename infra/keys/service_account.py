@@ -13,15 +13,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import logging
 import json
+import logging
 import time
-from typing import List,Optional
+
+from google.api_core import exceptions
+from google.auth.transport.requests import Request
 from google.cloud import iam_admin_v1
 from google.cloud.iam_admin_v1 import types
 from google.oauth2 import service_account
-from google.auth.transport.requests import Request
-from google.api_core import exceptions
+
 
 class ServiceAccountManagerLoggerAdapter(logging.LoggerAdapter):
     """Logger adapter that adds a prefix to all log messages."""
@@ -55,7 +56,7 @@ class ServiceAccountManager:
             # account_id is just the account name
             return f"{account_id}@{self.project_id}.iam.gserviceaccount.com"
 
-    def _get_service_accounts(self) -> List[iam_admin_v1.ServiceAccount]:
+    def _get_service_accounts(self) -> list[iam_admin_v1.ServiceAccount]:
         """
         Retrieves all service accounts in the specified project.
 
@@ -102,7 +103,7 @@ class ServiceAccountManager:
             self.logger.error(f"Service account {account_id} not found")
             return False
 
-    def create_service_account(self, account_id: str, display_name: Optional[str] = None) -> types.ServiceAccount:
+    def create_service_account(self, account_id: str, display_name: str | None = None) -> types.ServiceAccount:
         """
         Creates a service account in the specified project.
         If the service account already exists, returns the existing account (idempotent operation).
@@ -243,7 +244,7 @@ class ServiceAccountManager:
 
         self.logger.info(f"Deleted service account: {account_id}")
 
-    def _get_service_account_keys(self, account_id: str) -> List[iam_admin_v1.ServiceAccountKey]:
+    def _get_service_account_keys(self, account_id: str) -> list[iam_admin_v1.ServiceAccountKey]:
         """
         Retrieves all keys for the specified service account.
 
@@ -324,7 +325,7 @@ class ServiceAccountManager:
                 self.logger.info(f"Created service account key for {account_id}")
                 return key
                 
-            except exceptions.NotFound as e:
+            except exceptions.NotFound:
                 if attempt < self.max_retries - 1:
                     self.logger.warning(f"Service account {account_id} not found (attempt {attempt + 1}/{self.max_retries}), retrying in {delay}s. This may be due to propagation delay.")
                     time.sleep(delay)
@@ -409,7 +410,7 @@ class ServiceAccountManager:
                 request = Request()
                 credentials.refresh(request)
 
-                self.logger.info(f"Service account key is valid and can authenticate")
+                self.logger.info("Service account key is valid and can authenticate")
                 return True
                     
             except Exception as auth_error:

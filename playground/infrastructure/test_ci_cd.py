@@ -13,12 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import mock
-import pytest
+from unittest import mock
 
-from api.v1.api_pb2 import SDK_JAVA
+import pytest
 from ci_cd import _check_envs, _run_ci_cd
-from config import Origin, Config
+from config import Config, Origin
 
 
 @pytest.mark.parametrize("step", ["CI", "CD"])

@@ -18,8 +18,8 @@
 
 from concurrent.futures import TimeoutError
 
-from google.cloud import pubsub_v1
 from google.api_core.exceptions import AlreadyExists
+from google.cloud import pubsub_v1
 
 project_id = "apache-beam-testing"
 subscription_id = "test-image-looper"

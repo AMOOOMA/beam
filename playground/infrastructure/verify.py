@@ -17,23 +17,22 @@ import asyncio
 import logging
 import os
 from pathlib import Path
-from typing import List
 
-from tqdm.asyncio import tqdm
-
-from api.v1.api_pb2 import Sdk, SDK_PYTHON, SDK_JAVA
 from api.v1.api_pb2 import (
+    SDK_JAVA,
+    SDK_PYTHON,
     STATUS_COMPILE_ERROR,
     STATUS_ERROR,
+    STATUS_PREPARATION_ERROR,
     STATUS_RUN_ERROR,
     STATUS_RUN_TIMEOUT,
     STATUS_VALIDATION_ERROR,
-    STATUS_PREPARATION_ERROR,
 )
-from config import Origin, Config
+from config import Config, Origin
 from grpc_client import GRPCClient
 from helper import update_example_status
 from models import Example, SdkEnum
+from tqdm.asyncio import tqdm
 
 
 class VerifyException(Exception):
@@ -55,7 +54,7 @@ class Verifier:
         self._sdk = sdk
         self._origin = origin
 
-    def run_verify(self, examples: List[Example]):
+    def run_verify(self, examples: list[Example]):
         """
         Save beam examples and their output in the Google Cloud Datastore.
 
@@ -67,7 +66,7 @@ class Verifier:
     async def _get_statuses(
             self,
             client: GRPCClient,
-            examples: List[Example],
+            examples: list[Example],
             concurrency: int = 10
     ):
         """
@@ -156,7 +155,7 @@ class Verifier:
             logging.error(example.compile_output)
             raise RuntimeError(f"error in {example.tag.name}") from e
 
-    async def _run_and_verify(self, examples: List[Example]):
+    async def _run_and_verify(self, examples: list[Example]):
         """
         Run beam examples and keep their output.
 
@@ -174,7 +173,7 @@ class Verifier:
             await self._verify_examples(client, examples, self._origin)
 
     async def _verify_examples(
-        self, client: GRPCClient, examples: List[Example], origin: Origin
+        self, client: GRPCClient, examples: list[Example], origin: Origin
     ):
         """
         Verify statuses of beam examples and the number of found default examples.

@@ -21,34 +21,28 @@ import logging
 import os
 import urllib.parse
 from pathlib import PurePath
-from typing import List, Optional, Dict
-from api.v1 import api_pb2
 
 import pydantic
 import yaml
-
+from api.v1 import api_pb2
 from api.v1.api_pb2 import (
-    SDK_UNSPECIFIED,
-    STATUS_UNSPECIFIED,
-    Sdk,
-    STATUS_VALIDATING,
-    STATUS_PREPARING,
+    PRECOMPILED_OBJECT_TYPE_EXAMPLE,
+    PRECOMPILED_OBJECT_TYPE_KATA,
+    PRECOMPILED_OBJECT_TYPE_UNIT_TEST,
+    PRECOMPILED_OBJECT_TYPE_UNSPECIFIED,
     STATUS_COMPILING,
     STATUS_EXECUTING,
-    PRECOMPILED_OBJECT_TYPE_UNIT_TEST,
-    PRECOMPILED_OBJECT_TYPE_KATA,
-    PRECOMPILED_OBJECT_TYPE_UNSPECIFIED,
-    PRECOMPILED_OBJECT_TYPE_EXAMPLE,
-    PrecompiledObjectType,
+    STATUS_PREPARING,
+    STATUS_UNSPECIFIED,
+    STATUS_VALIDATING,
 )
-from config import Config, TagFields, PrecompiledExampleType
-from grpc_client import GRPCClient
+from config import Config, PrecompiledExampleType, TagFields
 from constants import BEAM_ROOT_DIR_ENV_VAR_KEY
+from grpc_client import GRPCClient
+from models import Dataset, Example, SdkEnum, Tag
 
-from models import Example, Tag, SdkEnum, Dataset
 
-
-def _check_no_nested(subdirs: List[str]):
+def _check_no_nested(subdirs: list[str]):
     """
     Check there're no nested subdirs
 
@@ -61,7 +55,7 @@ def _check_no_nested(subdirs: List[str]):
             raise ValueError(f"{dir2} is a subdirectory of {dir1}")
 
 
-def find_examples(root_dir: str, subdirs: List[str], sdk: SdkEnum) -> List[Example]:
+def find_examples(root_dir: str, subdirs: list[str], sdk: SdkEnum) -> list[Example]:
     """
     Find and return beam examples.
 
@@ -123,7 +117,7 @@ def find_examples(root_dir: str, subdirs: List[str], sdk: SdkEnum) -> List[Examp
     return examples
 
 
-def get_tag(filepath: PurePath) -> Optional[Tag]:
+def get_tag(filepath: PurePath) -> Tag | None:
     """
     Parse file by filepath and find beam tag
 
@@ -137,9 +131,9 @@ def get_tag(filepath: PurePath) -> Optional[Tag]:
     with open(filepath, encoding="utf-8") as parsed_file:
         lines = parsed_file.readlines()
 
-    line_start: Optional[int] = None
-    line_finish: Optional[int] = None
-    tag_prefix: Optional[str] = ""
+    line_start: int | None = None
+    line_finish: int | None = None
+    tag_prefix: str | None = ""
     for idx, line in enumerate(lines):
         if line_start is None and line.endswith(Config.BEAM_PLAYGROUND_TITLE):
             line_start = idx
@@ -170,7 +164,7 @@ def get_tag(filepath: PurePath) -> Optional[Tag]:
             return None
         raise
 
-def _load_example(filename, filepath, sdk: SdkEnum) -> Optional[Example]:
+def _load_example(filename, filepath, sdk: SdkEnum) -> Example | None:
     """
     Check file by filepath for matching to beam example. If file is beam example,
 
@@ -231,7 +225,7 @@ def _get_url_vcs(filepath: str) -> str:
     """
     root_dir = os.getenv(BEAM_ROOT_DIR_ENV_VAR_KEY, "../..")
     rel_path = os.path.relpath(filepath, root_dir)
-    url_vcs = "{}/{}".format(Config.URL_VCS_PREFIX, urllib.parse.quote(rel_path))
+    url_vcs = f"{Config.URL_VCS_PREFIX}/{urllib.parse.quote(rel_path)}"
     return url_vcs
 
 
@@ -277,7 +271,7 @@ async def update_example_status(example: Example, client: GRPCClient):
         example: beam example for processing and updating status and pipeline_id.
         client: client to send requests to the server.
     """
-    datasets: List[api_pb2.Dataset] = []
+    datasets: list[api_pb2.Dataset] = []
     for emulator in example.tag.emulators:
         dataset: Dataset = example.tag.datasets[emulator.topic.source_dataset]
 
@@ -290,7 +284,7 @@ async def update_example_status(example: Example, client: GRPCClient):
                 dataset_path=dataset.file_name,
             )
         )
-    files: List[api_pb2.SnippetFile] = [
+    files: list[api_pb2.SnippetFile] = [
         api_pb2.SnippetFile(name=example.filepath, content=example.code, is_main=True)
     ]
     for file in example.tag.files:
@@ -344,14 +338,14 @@ class ConflictingDatasetsError(Exception):
     pass
 
 
-def validate_examples_for_duplicates_by_name(examples: List[Example]):
+def validate_examples_for_duplicates_by_name(examples: list[Example]):
     """
     Validate examples for duplicates by example name to avoid duplicates in the Cloud Datastore
     :param examples: examples from the repository for saving to the Cloud Datastore
     """
-    duplicates: Dict[str, Example] = {}
+    duplicates: dict[str, Example] = {}
     for example in examples:
-        if example.tag.name not in duplicates.keys():
+        if example.tag.name not in duplicates:
             duplicates[example.tag.name] = example
         else:
             err_msg = f"Examples have duplicate names.\nDuplicates: \n - path #1: {duplicates[example.tag.name].filepath} \n - path #2: {example.filepath}"
@@ -359,12 +353,12 @@ def validate_examples_for_duplicates_by_name(examples: List[Example]):
             raise DuplicatesError(err_msg)
 
 
-def validate_examples_for_conflicting_datasets(examples: List[Example]):
+def validate_examples_for_conflicting_datasets(examples: list[Example]):
     """
     Validate examples for conflicting datasets to avoid conflicts in the Cloud Datastore
     :param examples: examples from the repository for saving to the Cloud Datastore
     """
-    datasets: Dict[str, Dataset] = {}
+    datasets: dict[str, Dataset] = {}
     for example in examples:
         for k, v in example.tag.datasets.items():
             if k not in datasets:

@@ -27,7 +27,7 @@
 
 
 import apache_beam as beam
-from apache_beam.io.kafka import ReadFromKafka, WriteToKafka
+
 
 def process_data(element):
     # Do some processing on the data

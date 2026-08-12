@@ -27,9 +27,9 @@
 
 
 import datetime
-import pytz
 
 import apache_beam as beam
+import pytz
 from apache_beam import window
 
 

@@ -31,12 +31,11 @@ Example usage::
 No backward compatibility guarantees. Everything in this module is experimental.
 """
 
+import apache_beam as beam
 import numpy as np
 import redis
-from redis.commands.search.query import Query
-
-import apache_beam as beam
 from apache_beam.transforms.enrichment import EnrichmentSourceHandler
+from redis.commands.search.query import Query
 
 __all__ = [
     'RedisEnrichmentHandler',

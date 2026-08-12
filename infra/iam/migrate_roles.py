@@ -23,10 +23,12 @@
 import argparse
 import os
 import sys
+
 import yaml
-import roles.generate_roles as generate_roles
 from generate import export_project_iam, to_yaml_file
 from google.cloud.iam_admin_v1 import GetRoleRequest, IAMClient
+from roles import generate_roles
+
 
 def migrate_permissions(data: list) -> list:
     """

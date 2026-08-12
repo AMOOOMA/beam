@@ -29,12 +29,12 @@ Dependencies:
   'sudo apt-get install python-beautifulsoup4'.
 
 """
-from __future__ import print_function
 
 import argparse
 import fnmatch
 import os
 import re
+
 from bs4 import BeautifulSoup
 
 try:
@@ -92,7 +92,7 @@ for match in matches:
         with open(match, "wb") as f:
           print('Replacing ' + content + ' with: ' + meta['content'])
           f.write(html)
-    except KeyError as e:
+    except KeyError:
       # Some <meta> tags don't have url.
       continue
 
@@ -122,6 +122,6 @@ for match in matches:
         with open(match, "wb") as f:
           print('Replacing ' + hr + ' with: ' + a['href'])
           f.write(html)
-    except KeyError as e:
+    except KeyError:
       # Some <a> tags don't have an href.
       continue

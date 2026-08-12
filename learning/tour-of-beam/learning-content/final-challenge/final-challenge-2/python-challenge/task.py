@@ -27,12 +27,9 @@
 #   tags:
 #     - hellobeam
 
-import re
 import apache_beam as beam
 from apache_beam.io import ReadFromText
 from apache_beam.options.pipeline_options import PipelineOptions
-from apache_beam.transforms import window, trigger
-from apache_beam.transforms.combiners import CountCombineFn
 
 
 class SplitWords(beam.DoFn):

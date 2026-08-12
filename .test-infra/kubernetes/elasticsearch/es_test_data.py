@@ -21,13 +21,12 @@
 # Hashcode for 50m records (~20 gigs) is 42e254c8689050ed0a617ff5e80ea392 
 #!/usr/bin/python
 
+import datetime
 import json
-import time
 import logging
 import random
-import string
+import time
 import uuid
-import datetime
 
 import tornado.gen
 import tornado.httpclient
@@ -73,7 +72,6 @@ def create_index(idx_name):
         logging.info('Creating index "%s" done   %s' % (idx_name, response.body))
     except tornado.httpclient.HTTPError:
         logging.info('Looks like the index exists already')
-        pass
 
 
 @tornado.gen.coroutine
@@ -120,7 +118,7 @@ def get_data_for_format(format,count):
         return_val = count
     
     elif field_type == "ipv4":
-        return_val = "{0}.{1}.{2}.{3}".format(1,2,3,count%255)
+        return_val = f"{1}.{2}.{3}.{count%255}"
 
     elif field_type in ["ts", "tstxt"]:
         return_val = int(count * 1000) if field_type == "ts" else\
@@ -228,7 +226,7 @@ def generate_test_data():
     logging.info("Generating %d docs, upload batch size is %d" % (tornado.options.options.count,
                                                                   tornado.options
                                                                   .options.batch_size))
-    for num in range(0, tornado.options.options.count):
+    for num in range(tornado.options.options.count):
 
         item = generate_random_doc(format,num)
 

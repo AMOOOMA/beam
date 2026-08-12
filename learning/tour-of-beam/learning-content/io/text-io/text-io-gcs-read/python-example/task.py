@@ -27,6 +27,7 @@
 
 import apache_beam as beam
 
+
 def print_words(line):
     for word in line.split():
       print(word)

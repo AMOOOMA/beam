@@ -15,11 +15,10 @@
 
 import os
 import re
-import requests
 from datetime import datetime
-from github import Github
-from github import Auth
 
+import requests
+from github import Auth, Github
 
 ALERT_NAME = "flaky_test"
 GIT_ORG = "apache"

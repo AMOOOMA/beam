@@ -13,13 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import List
 
-from api.v1.api_pb2 import SDK_JAVA, STATUS_UNSPECIFIED
-from models import Example, Tag, SdkEnum, ComplexityEnum
+from api.v1.api_pb2 import STATUS_UNSPECIFIED
+from models import ComplexityEnum, Example, SdkEnum, Tag
 
 
-def _get_examples(number_of_examples: int) -> List[Example]:
+def _get_examples(number_of_examples: int) -> list[Example]:
     examples = []
     for number in range(number_of_examples):
         tag = Tag(

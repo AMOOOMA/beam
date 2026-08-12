@@ -27,11 +27,8 @@
 #     tags:
 #       - hellobeam
 
+
 import apache_beam as beam
-import logging
-import re
-from apache_beam.transforms import window, trigger
-from apache_beam.transforms.combiners import CountCombineFn
 
 
 class Transaction:

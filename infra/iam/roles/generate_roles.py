@@ -17,11 +17,12 @@
 # This script generates roles based on what Apache Beam uses in GCP.
 # The roles are defined in a YAML file.
 
-import yaml
 import datetime
 import os
-from google.cloud import iam_admin_v1
+
+import yaml
 from google.api_core import exceptions
+from google.cloud import iam_admin_v1
 
 # Permissions cache to avoid repeated API calls.
 permissions_cache = {}

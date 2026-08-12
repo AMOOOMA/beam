@@ -21,9 +21,6 @@ Example usage:
   Run all specs in ./base/:   python runner.py base
   Run single test spec:       python runner.py --single-test base/testing.spec
 """
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
 import argparse
 import glob
@@ -32,9 +29,8 @@ import os
 import sys
 from collections import OrderedDict
 
-import yaml
-
 import nbformat
+import yaml
 from nbconvert.preprocessors import ExecutePreprocessor
 
 # import testlib
@@ -114,7 +110,7 @@ def main():
     specs = [args.single_test]
   else:
     specs = itertools.chain.from_iterable([
-        glob.iglob("{}/**.spec".format(suite), recursive=True)
+        glob.iglob(f"{suite}/**.spec", recursive=True)
         for suite in args.suites
     ])
 
@@ -132,13 +128,13 @@ def main():
   if total_test_count == 0:
     print("No tests were found.")
     sys.exit(2)
-  print("{} errors in {} tests.\n".format(total_error_count, total_test_count))
+  print(f"{total_error_count} errors in {total_test_count} tests.\n")
   if total_error_count:
     for spec, errors in total_errors:
-      print("In spec {}:".format(spec))
+      print(f"In spec {spec}:")
       for info, error in errors.items():
         cell_num, cls, setup = info
-        print("\tCell {} [{}: {}]: {}".format(cell_num, cls, setup, error))
+        print(f"\tCell {cell_num} [{cls}: {setup}]: {error}")
       print("\n")
   ret_code = 0 if total_error_count == 0 else 1
   sys.exit(ret_code)

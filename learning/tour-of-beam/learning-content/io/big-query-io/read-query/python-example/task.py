@@ -28,12 +28,12 @@
 #     - hellobeam
 
 import argparse
-import os
-import warnings
 
 import apache_beam as beam
-from apache_beam.options.pipeline_options import PipelineOptions, GoogleCloudOptions, SetupOptions
-from apache_beam.io.gcp.bigquery import ReadFromBigQueryRequest, ReadAllFromBigQuery
+from apache_beam.options.pipeline_options import (
+    PipelineOptions,
+)
+
 
 class WeatherData:
     def __init__(self, station_number, wban_number, year, month, day):

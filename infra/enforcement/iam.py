@@ -18,17 +18,17 @@ import datetime
 import logging
 import os
 import sys
+
 import yaml
 from google.api_core import exceptions
 from google.cloud import resourcemanager_v3
-from typing import Optional, List, Dict, Tuple
 from sending import SendingClient
 
 CONFIG_FILE = "config.yml"
 
 class IAMPolicyComplianceChecker:
 
-    def is_project_service_account_email(self, email: Optional[str]) -> bool:
+    def is_project_service_account_email(self, email: str | None) -> bool:
         """
         Returns True if the email is not a service account, or if it is a service account and the email contains the project_id.
         """
@@ -36,14 +36,14 @@ class IAMPolicyComplianceChecker:
             return self.project_id in email
         return True
 
-    def __init__(self, project_id: str, users_file: str, logger: logging.Logger, sending_client: Optional[SendingClient] = None):
+    def __init__(self, project_id: str, users_file: str, logger: logging.Logger, sending_client: SendingClient | None = None):
         self.project_id = project_id
         self.users_file = users_file
         self.client = resourcemanager_v3.ProjectsClient()
         self.logger = logger
         self.sending_client = sending_client
 
-    def _parse_member(self, member: str) -> tuple[str, Optional[str], str]:
+    def _parse_member(self, member: str) -> tuple[str, str | None, str]:
         """Parses an IAM member string to extract type, email, and a derived username.
 
         Args:
@@ -75,7 +75,7 @@ class IAMPolicyComplianceChecker:
 
         return username, email, member_type
 
-    def _export_project_iam(self) -> List[Dict]:
+    def _export_project_iam(self) -> list[dict]:
         """Exports the IAM policy for a given project to YAML format.
 
         Returns:
@@ -139,7 +139,7 @@ class IAMPolicyComplianceChecker:
         output_list.sort(key=lambda x: x["username"])
         return output_list
 
-    def _read_project_iam_file(self) -> List[Dict]:
+    def _read_project_iam_file(self) -> list[dict]:
         """Reads the IAM policy from a YAML file.
 
         Returns:
@@ -159,7 +159,7 @@ class IAMPolicyComplianceChecker:
             self.logger.error(f"An error occurred while reading IAM policy file for project {self.project_id}: {e}")
             return []
 
-    def _to_yaml_file(self, data: List[Dict], output_file: str, header_info: str = "") -> None:
+    def _to_yaml_file(self, data: list[dict], output_file: str, header_info: str = "") -> None:
         """
         Writes a list of dictionaries to a YAML file.
         Include the apache license header on the files
@@ -194,11 +194,11 @@ class IAMPolicyComplianceChecker:
                 file.write(header)
                 yaml.dump(data, file, sort_keys=False, default_flow_style=False, indent=2)
             self.logger.info(f"Successfully wrote IAM policy data to {output_file}")
-        except IOError as e:
+        except OSError as e:
             self.logger.error(f"Failed to write to {output_file}: {e}")
             raise
         
-    def check_compliance(self) -> List[str]:
+    def check_compliance(self) -> list[str]:
         """
         Checks the compliance of the IAM policy against the defined policies.
 
@@ -254,14 +254,14 @@ class IAMPolicyComplianceChecker:
             self.logger.info("No compliance issues found, no announcement will be created.")
             return
 
-        title = f"IAM Policy Non-Compliance Detected"
+        title = "IAM Policy Non-Compliance Detected"
         body = f"IAM policy for project {self.project_id} is not compliant with the defined policies on {self.users_file}\n\n"
         for issue in diff:
             body += f"- {issue}\n"
 
         announcement = f"Dear team,\n\nThis is an automated notification about compliance issues detected in the IAM policy for project {self.project_id}.\n\n"
         announcement += f"We found {len(diff)} compliance issue(s) that need your attention.\n"
-        announcement += f"\nPlease check the GitHub issue for detailed information and take appropriate action to resolve these compliance violations."
+        announcement += "\nPlease check the GitHub issue for detailed information and take appropriate action to resolve these compliance violations."
 
         self.sending_client.create_announcement(title, body, recipient, announcement)
 
@@ -281,14 +281,14 @@ class IAMPolicyComplianceChecker:
             self.logger.info("No compliance issues found, no announcement will be printed.")
             return
 
-        title = f"IAM Policy Non-Compliance Detected"
+        title = "IAM Policy Non-Compliance Detected"
         body = f"IAM policy for project {self.project_id} is not compliant with the defined policies on {self.users_file}\n\n"
         for issue in diff:
             body += f"- {issue}\n"
 
         announcement = f"Dear team,\n\nThis is an automated notification about compliance issues detected in the IAM policy for project {self.project_id}.\n\n"
         announcement += f"We found {len(diff)} compliance issue(s) that need your attention.\n"
-        announcement += f"\nPlease check the GitHub issue for detailed information and take appropriate action to resolve these compliance violations."
+        announcement += "\nPlease check the GitHub issue for detailed information and take appropriate action to resolve these compliance violations."
 
         self.sending_client.print_announcement(title, body, recipient, announcement)
     
@@ -314,7 +314,7 @@ class IAMPolicyComplianceChecker:
         self._to_yaml_file(current_policy, self.users_file, header_info)
         self.logger.info(f"Generated new compliance file: {self.users_file}")
 
-def config_process() -> Dict[str, str]:
+def config_process() -> dict[str, str]:
     with open(CONFIG_FILE, "r") as file:
         config = yaml.safe_load(file)
 

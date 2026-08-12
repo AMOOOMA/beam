@@ -13,15 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from unittest.mock import MagicMock, ANY
+from unittest import mock
+from unittest.mock import ANY, MagicMock
 
-import mock
 import pytest
-from mock.mock import call
-from google.cloud import datastore
-
-from config import Origin, Config
+from config import Config, Origin
 from datastore_client import DatastoreClient, DatastoreException
+from mock.mock import call
 from models import SdkEnum
 from test_utils import _get_examples
 

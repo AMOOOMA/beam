@@ -28,6 +28,7 @@
 
 import apache_beam as beam
 
+
 # Output PCollection
 class Output(beam.PTransform):
     class _OutputFn(beam.DoFn):

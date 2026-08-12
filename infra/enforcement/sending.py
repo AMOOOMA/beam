@@ -13,11 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import requests
 import logging
-import smtplib, ssl
-from typing import List, Optional
+import smtplib
+import ssl
 from dataclasses import dataclass
+
+import requests
+
 
 @dataclass
 class GitHubIssue:
@@ -59,7 +61,7 @@ class SendingClient:
         self.logger = logger
         self.github_api_url = "https://api.github.com"
 
-    def _make_github_request(self, method: str, endpoint: str, json: Optional[dict] = None, params: Optional[dict] = None) -> requests.Response:
+    def _make_github_request(self, method: str, endpoint: str, json: dict | None = None, params: dict | None = None) -> requests.Response:
         """
         Makes a request to the GitHub API with retry logic for transient errors and rate limiting.
 
@@ -141,7 +143,7 @@ class SendingClient:
             server.login(self.email, self.password)
             server.sendmail(self.email, recipient, message)
 
-    def _get_open_issues(self, title: str) -> List[GitHubIssue]:
+    def _get_open_issues(self, title: str) -> list[GitHubIssue]:
         """
         Retrieves the open GitHub issues with a given title.
 
@@ -213,7 +215,7 @@ class SendingClient:
         self._make_github_request("POST", endpoint, json=payload)
         self.logger.info(f"Successfully added comment to GitHub issue: #{issue_number}")
 
-    def report_unmanaged_keys(self, project_id: str, compilance_issues: List[str]) -> None:
+    def report_unmanaged_keys(self, project_id: str, compilance_issues: list[str]) -> None:
         """
         Report compliance issues regarding unmanaged keys into a single GitHub issue.
         Creates a new issue if none exists. If it exists, updates the body with the newest
@@ -315,7 +317,7 @@ class SendingClient:
         This is used for testing.
         """
         self.logger.info("Printing announcement...")
-        print(f"Simulating email sending...")
+        print("Simulating email sending...")
         print(f"Recipient: {recipient}")
         print(f"Announcement: {announcement}")
 

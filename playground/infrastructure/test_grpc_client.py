@@ -17,7 +17,6 @@ import uuid
 from unittest.mock import AsyncMock
 
 import pytest
-
 from api.v1 import api_pb2
 from grpc_client import GRPCClient
 

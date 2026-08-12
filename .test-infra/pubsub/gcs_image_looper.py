@@ -19,8 +19,7 @@ import random
 import time
 
 from google.api_core.exceptions import AlreadyExists
-from google.cloud import pubsub_v1
-from google.cloud import storage
+from google.cloud import pubsub_v1, storage
 
 # use the eou project and gcs to run the word looper
 project_id = "apache-beam-testing"
@@ -33,7 +32,7 @@ topic_name = "Imagenet_openimage_50k_benchmark"
 topic_path = publisher.topic_path(project_id, topic_name)
 
 
-class ImageLooper(object):
+class ImageLooper:
     """Loop the images in a gcs bucket file and publish them to a pubsub topic.
   """
     content = ""

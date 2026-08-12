@@ -19,12 +19,10 @@ Module contains the client to communicate with GRPC test Playground server
 import logging
 import os
 import uuid
-from typing import List
 
 import grpc
 import sonora.aio
-
-from api.v1 import api_pb2_grpc, api_pb2
+from api.v1 import api_pb2, api_pb2_grpc
 from config import Config
 from constants import BEAM_USE_WEBGRPC_ENV_VAR_KEY, GRPC_TIMEOUT_ENV_VAR_KEY
 from models import SdkEnum
@@ -58,8 +56,8 @@ class GRPCClient:
         code: str,
         sdk: SdkEnum,
         pipeline_options: str,
-        datasets: List[api_pb2.Dataset],
-        files: List[api_pb2.SnippetFile],
+        datasets: list[api_pb2.Dataset],
+        files: list[api_pb2.SnippetFile],
         ) -> str:
         """
         Run example by his code and SDK

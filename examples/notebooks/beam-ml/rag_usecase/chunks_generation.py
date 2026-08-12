@@ -15,20 +15,20 @@
 # limitations under the License.
 #
 
-from __future__ import absolute_import
 
-import apache_beam as beam
-from langchain.text_splitter import CharacterTextSplitter, RecursiveCharacterTextSplitter
-from langchain_text_splitters import SentenceTransformersTokenTextSplitter
-
-from apache_beam.transforms import DoFn
-from apache_beam.transforms import PTransform
 from enum import Enum
 
+import apache_beam as beam
+from apache_beam.transforms import DoFn, PTransform
+from langchain.text_splitter import (
+    CharacterTextSplitter,
+    RecursiveCharacterTextSplitter,
+)
+from langchain_text_splitters import SentenceTransformersTokenTextSplitter
 
 __all__ = [
-    'ChunksGeneration',
-    'ChunkingStrategy'
+    'ChunkingStrategy',
+    'ChunksGeneration'
 ]
 
 class ChunkingStrategy(Enum):

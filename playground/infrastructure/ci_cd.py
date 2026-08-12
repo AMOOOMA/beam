@@ -17,25 +17,21 @@
 Module implements CI/CD steps for Beam Playground examples
 """
 import argparse
-import asyncio
 import logging
 import os
-import re
-from typing import List
 
-from constants import BEAM_ROOT_DIR_ENV_VAR_KEY, BEAM_EXAMPLE_CATEGORIES_ENV_VAR_KEY
-from models import SdkEnum, Example, StringToSdkEnum
 from config import Config, Origin
+from constants import BEAM_EXAMPLE_CATEGORIES_ENV_VAR_KEY, BEAM_ROOT_DIR_ENV_VAR_KEY
 from datastore_client import DatastoreClient
-from api.v1 import api_pb2
-from verify import Verifier
 from helper import (
     find_examples,
     load_supported_categories,
-    validate_examples_for_duplicates_by_name,
     validate_examples_for_conflicting_datasets,
+    validate_examples_for_duplicates_by_name,
 )
 from logger import setup_logger
+from models import SdkEnum, StringToSdkEnum
+from verify import Verifier
 
 parser = argparse.ArgumentParser(description="CI/CD Steps for Playground objects")
 parser.add_argument(
@@ -93,7 +89,7 @@ def _check_envs():
         )
 
 
-def _run_ci_cd(step: str, raw_sdk: str, origin: Origin, project: str, namespace: str, subdirs: List[str]):
+def _run_ci_cd(step: str, raw_sdk: str, origin: Origin, project: str, namespace: str, subdirs: list[str]):
     sdk: SdkEnum = StringToSdkEnum(raw_sdk)
 
     load_supported_categories(categories_file)

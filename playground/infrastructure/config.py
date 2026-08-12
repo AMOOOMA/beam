@@ -22,11 +22,20 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Literal
 
-from api.v1.api_pb2 import STATUS_VALIDATION_ERROR, STATUS_ERROR, \
-    STATUS_PREPARATION_ERROR, STATUS_COMPILE_ERROR, \
-    STATUS_RUN_TIMEOUT, STATUS_RUN_ERROR, SDK_JAVA, SDK_GO, SDK_PYTHON, \
-    SDK_SCIO, Sdk
-from constants import SERVER_ADDRESS_ENV_VAR_KEY, SDK_CONFIG_ENV_VAR_KEY
+from api.v1.api_pb2 import (
+    SDK_GO,
+    SDK_JAVA,
+    SDK_PYTHON,
+    SDK_SCIO,
+    STATUS_COMPILE_ERROR,
+    STATUS_ERROR,
+    STATUS_PREPARATION_ERROR,
+    STATUS_RUN_ERROR,
+    STATUS_RUN_TIMEOUT,
+    STATUS_VALIDATION_ERROR,
+    Sdk,
+)
+from constants import SDK_CONFIG_ENV_VAR_KEY, SERVER_ADDRESS_ENV_VAR_KEY
 
 
 @dataclass(frozen=True)

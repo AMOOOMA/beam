@@ -19,7 +19,7 @@
 
 import unittest
 
-from test_helper import test_is_not_empty, get_file_output
+from test_helper import get_file_output, test_is_not_empty
 
 
 class TestCase(unittest.TestCase):

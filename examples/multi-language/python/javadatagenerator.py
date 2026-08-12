@@ -16,16 +16,15 @@
 #
 
 import logging
-import numpy as np
-import re
 import typing
 
 import apache_beam as beam
-from apache_beam.io import ReadFromText
+import numpy as np
 from apache_beam.io import WriteToText
-from apache_beam.transforms.external import ImplicitSchemaPayloadBuilder
-from apache_beam.transforms.external import JavaExternalTransform
 from apache_beam.options.pipeline_options import PipelineOptions
+from apache_beam.transforms.external import (
+  JavaExternalTransform,
+)
 
 """A Python multi-language pipeline that produces a set of strings generated from Java.
 

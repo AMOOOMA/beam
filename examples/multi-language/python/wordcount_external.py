@@ -22,6 +22,7 @@ from apache_beam.options.pipeline_options import PipelineOptions
 from apache_beam.transforms.external import BeamJarExpansionService
 from apache_beam.transforms.external_transform_provider import ExternalTransformProvider
 from apache_beam.typehints.row_type import RowTypeConstraint
+
 """A Python multi-language pipeline that counts words using multiple Java SchemaTransforms.
 
 This pipeline reads an input text file then extracts the words, counts them, and writes the results Java 

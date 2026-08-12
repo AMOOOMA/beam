@@ -14,15 +14,11 @@
 # limitations under the License.
 import logging
 import os.path
-import pathlib
-
 from enum import Enum, IntEnum
-from typing import List, Optional, Dict
+
 from api.v1 import api_pb2
-
-from pydantic import BaseModel, Extra, Field, validator, root_validator, HttpUrl
-
 from config import RepoProps
+from pydantic import BaseModel, Extra, Field, HttpUrl, root_validator, validator
 
 
 class ComplexityEnum(str, Enum):
@@ -73,7 +69,7 @@ class Tag(BaseModel):
 
     # These parameters are parsed from YAML and are required:
 
-    categories: List[str] = []
+    categories: list[str] = []
     """
     Titles of categories to list this snippet in. Non-existent categories will be created.
     """
@@ -102,7 +98,7 @@ class Tag(BaseModel):
 
     # These parameters are parsed from YAML and are optional:
 
-    datasets: Dict[str, Dataset] = {}
+    datasets: dict[str, Dataset] = {}
     """
     Datasets which will be used by emulators. Example:
     datasets:
@@ -117,7 +113,7 @@ class Tag(BaseModel):
     If multiple snippets set this to `true` the behavior is undefined.
     """
 
-    emulators: List[Emulator] = []
+    emulators: list[Emulator] = []
     """
     List of emulators to start during pipeline execution. Currently only `kafka` type is supported.
     Example:
@@ -150,12 +146,12 @@ class Tag(BaseModel):
     pipeline_options: --name1 value1 --name2 value2
     """
 
-    tags: List[str] = []
+    tags: list[str] = []
     """
     Tags by which this snippet can be found in the dropdown.
     """
 
-    url_notebook: Optional[HttpUrl] = None
+    url_notebook: HttpUrl | None = None
     """
     The URL of the Colab notebook that is based on this snippet.
     """
@@ -163,7 +159,7 @@ class Tag(BaseModel):
     # These parameters are NOT parsed from YAML but are added at construction:
 
     filepath: str = Field(..., min_length=1)
-    files: List[ImportFile] = []
+    files: list[ImportFile] = []
     line_start: int
     line_finish: int
 

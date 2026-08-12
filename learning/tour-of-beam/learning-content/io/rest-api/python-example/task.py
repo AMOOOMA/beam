@@ -31,11 +31,10 @@ process it in some way (although the example provided doesn't perform any signif
 and then write the data back into BigQuery, but with a unique table for each user based on the user's "id".
 """
 
-import argparse
 import logging
 
-from apache_beam.io.gcp.internal.clients import bigquery
 import apache_beam as beam
+from apache_beam.io.gcp.internal.clients import bigquery
 
 
 def create_random_record(record_id):

@@ -11,8 +11,8 @@
 
 '''This file contains a list of utilities for working with GitHub data.'''
 
-from datetime import datetime
 import re
+from datetime import datetime
 
 GITHUB_DATETIME_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
