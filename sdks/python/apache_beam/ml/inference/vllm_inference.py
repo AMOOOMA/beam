@@ -508,6 +508,7 @@ class _VLLMModelServer():
       autoscaling_aggregation: str = _VLLM_DEFAULT_AUTOSCALING_AGGREGATION,
       autoscaling_aggregation_window_secs: float = (
           _VLLM_DEFAULT_AUTOSCALING_WINDOW_SECS),
+      autoscaling_backlog_multiplier: float = _VLLM_DEFAULT_BACKLOG_MULTIPLIER,
       load_signal_fn: Optional[Callable[[int], Optional[float]]] = None,
   ):
     self._model_name = model_name
@@ -530,14 +531,7 @@ class _VLLMModelServer():
     # Per-worker message-capacity signal derived from vLLM's request
     # completion rate; see _VLLMCompletionRateSignal. Overridden by
     # load_signal_fn when one is supplied.
-    try:
-      _backlog_multiplier = float(
-          os.environ.get(
-              'VLLM_AUTOSCALING_BACKLOG_MULTIPLIER',
-              _VLLM_DEFAULT_BACKLOG_MULTIPLIER,
-          ))
-    except (TypeError, ValueError):
-      _backlog_multiplier = _VLLM_DEFAULT_BACKLOG_MULTIPLIER
+    _backlog_multiplier = float(autoscaling_backlog_multiplier)
     self._completion_rate_signal = _VLLMCompletionRateSignal(
         backlog_multiplier=_backlog_multiplier)
     # Publishes the num_loaded_models_<tag> autoscaling signal derived from the
