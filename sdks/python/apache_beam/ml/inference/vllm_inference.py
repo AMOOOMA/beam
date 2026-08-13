@@ -168,12 +168,13 @@ class NumLoadedModelsPublisher:
 
     * ``'lifetime_max'`` -- the maximum concurrency observed over the whole
                      pipeline lifetime (monotonic; never decays). Sizes the
-                     fleet to the worst load ever seen and holds it. Default.
+                     fleet to the worst load ever seen and holds it.
     * ``'max'``   -- peak concurrency in the trailing
                      ``aggregation_window_secs`` window; decays that long after
                      load drops.
     * ``'p<NN>'`` -- a windowed percentile, e.g. ``'p90'``. Smoother than max:
                      ignores brief spikes and decays as low samples fill it.
+                     Default: ``'p90'`` over the trailing 30-minute window.
     * ``'mean'``  -- the average over the window.
     * ``'last'``  -- the raw last sample (no smoothing; original behavior).
   """
@@ -265,29 +266,32 @@ class NumLoadedModelsPublisher:
       self._stop_event.wait(self._poll_interval_secs)
 
   def start(self) -> None:
-    """Publishes an initial 0 and starts the background polling thread."""
+    """Starts the background polling thread.
+
+    Deliberately publishes no initial 0: reporting 0 would tell the autoscaler
+    this replica has no capacity and could trigger a spurious downscale before
+    the first real sample lands. The metric stays absent until the first
+    aggregate is published.
+    """
     if self._thread is not None:
       return
-    try:
-      self._publish(0)
-    except Exception:  # pylint: disable=broad-except
-      logging.exception(
-          'Failed to publish initial autoscaling metric %s.', self._metric_name)
     self._thread = threading.Thread(
         target=self._run, name='num-loaded-models-publisher', daemon=True)
     self._thread.start()
 
   def stop(self) -> None:
-    """Stops polling and publishes a final 0 so a drained worker sheds load."""
+    """Stops polling.
+
+    Deliberately publishes no final 0. When a worker is drained during a
+    downscale, reporting 0 shrinks the aggregate capacity and can drive a
+    feedback loop of further downscales that tears down healthy replicas. The
+    drained worker's contribution ages out via metric staleness instead.
+    """
     self._stop_event.set()
     thread = self._thread
     if thread is not None:
       thread.join(timeout=self._poll_interval_secs + 5)
       self._thread = None
-    try:
-      self._publish(0)
-    except Exception:  # pylint: disable=broad-except
-      pass
 
 
 @dataclass(frozen=True)
@@ -342,8 +346,8 @@ def getAsyncVLLMClient(port) -> AsyncOpenAI:
 
 
 _VLLM_DEFAULT_AUTOSCALING_POLL_SECS = 5.0
-_VLLM_DEFAULT_AUTOSCALING_AGGREGATION = 'lifetime_max'
-_VLLM_DEFAULT_AUTOSCALING_WINDOW_SECS = 60.0
+_VLLM_DEFAULT_AUTOSCALING_AGGREGATION = 'p90'
+_VLLM_DEFAULT_AUTOSCALING_WINDOW_SECS = 1800.0  # 30 minutes.
 # Dimensionless multiplier applied to vLLM's measured request completion RATE
 # to form the per-worker capacity for the num_loaded_models signal:
 #   reported = max(1, completion_rate_req_per_s * backlog_multiplier)
