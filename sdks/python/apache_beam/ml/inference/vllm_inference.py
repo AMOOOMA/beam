@@ -410,37 +410,63 @@ def _scrape_vllm_load_signal(
   return total
 
 
-class _VLLMCompletionRateSignal:
-  """Stateful ``num_loaded_models`` signal based on vLLM's completion rate.
+def _nearest_rank_percentile(values: list[float], q: float) -> float:
+  """Nearest-rank percentile (``q`` in [0, 100]) of a non-empty list."""
+  ordered = sorted(values)
+  q = min(max(q, 0.0), 100.0)
+  rank = int((q * len(ordered) + 99) // 100)  # ceil(q / 100 * n).
+  idx = min(max(rank - 1, 0), len(ordered) - 1)
+  return ordered[idx]
 
-  Each call scrapes ``vllm:request_success_total`` from the server's
-  ``/metrics`` endpoint and returns the request completion rate observed since
-  the previous call, expressed as a per-worker message capacity
-  ``rate_req_per_s * backlog_multiplier``.
+
+class _VLLMCompletionRateSignal:
+  """Stateful ``num_loaded_models`` signal: per-slot throughput x concurrency.
+
+  Each call scrapes vLLM's completion counter (``vllm:request_success_total``)
+  and the in-flight request gauge (``vllm:num_requests_running``) from the
+  server's ``/metrics`` endpoint. Over a trailing ``window_secs`` window it
+  derives:
+
+    * ``mu`` -- per-slot throughput, ``sum(delta_completed) / sum(running * dt)``
+      (a ratio of windowed sums, so discrete completions don't make it bursty).
+      This approximates ``1 / avg_latency`` and is roughly independent of the
+      offered load.
+    * ``running_ref`` -- the ``running_percentile`` (default p90) of observed
+      in-flight concurrency. p90 rather than max avoids latching onto rare,
+      heavily backlogged spikes that overstate normal-load capacity.
+
+  and reports a per-worker message capacity::
+
+      reported = mu * running_ref * backlog_multiplier
 
   Windmill's GPU-intensive autoscaler sizes the pool as
   ``desired = ceil(total_keys / reported)`` (see
-  //dist_proc/windmill/autoscaling/horizontal_scaling_policy.cc). Reporting
-  realized throughput -- which saturates at the replica's true serving capacity
-  -- lets the pool scale out with offered load. The previous signal (accepted
-  concurrency, ``vllm:num_requests_running``) instead saturates at
-  ``max_num_seqs``, so ``reported`` stayed large and ``desired`` collapsed to a
-  single replica that then buffered requests without bound.
-
-  Combined with the publisher's ``lifetime_max`` aggregation the reported value
-  becomes the peak sustained throughput, i.e. the maximum load the replica has
-  demonstrated it can absorb. For a rate signal a windowed aggregation
-  (``max``/``p90``) may be preferred so a transient completion burst does not
-  latch the capacity estimate high for the whole pipeline lifetime.
+  //dist_proc/windmill/autoscaling/horizontal_scaling_policy.cc). Normalizing by
+  ``running`` makes the estimate load-independent: right after an autoscaling
+  event, when Windmill rebalances keys and the worker is briefly starved, the
+  raw completion rate collapses but ``mu`` holds and ``running_ref`` still
+  reflects the concurrency the worker normally serves -- so ``reported`` stays
+  steady instead of cratering to the floor and triggering a downscale spiral.
   """
 
   _COMPLETED_METRIC = 'vllm:request_success_total'
+  _RUNNING_METRIC = 'vllm:num_requests_running'
 
-  def __init__(self, backlog_multiplier: float = 1.0, min_value: int = 1):
+  def __init__(
+      self,
+      backlog_multiplier: float = 1.0,
+      min_value: int = 1,
+      window_secs: float = 1800.0,
+      running_percentile: float = 90.0,
+  ):
     self._backlog_multiplier = max(float(backlog_multiplier), 0.0)
     self._min_value = int(min_value)
+    self._window_secs = max(float(window_secs), 0.0)
+    self._running_percentile = min(max(float(running_percentile), 0.0), 100.0)
     self._last_count: Optional[float] = None
     self._last_ts: Optional[float] = None
+    # Trailing (timestamp, delta_completed, running, dt) samples.
+    self._samples: list[tuple[float, float, float, float]] = []
 
   def __call__(self, port: int, timeout_secs: float = 5.0) -> Optional[float]:
     url = f'http://localhost:{port}/metrics'
@@ -450,7 +476,8 @@ class _VLLMCompletionRateSignal:
     except Exception:  # pylint: disable=broad-except
       return None
     completed = parse_prometheus_metric(text, self._COMPLETED_METRIC)
-    if completed is None:
+    running = parse_prometheus_metric(text, self._RUNNING_METRIC)
+    if completed is None or running is None:
       return None
     now = time.time()
     prev_count, prev_ts = self._last_count, self._last_ts
@@ -463,8 +490,25 @@ class _VLLMCompletionRateSignal:
     if dt <= 0 or delta < 0:
       # Clock skew or counter reset (vLLM server restart); skip this tick.
       return None
-    rate = delta / dt  # completions per second.
-    return max(float(self._min_value), rate * self._backlog_multiplier)
+    if running < 0:
+      return None
+    # Record this interval and evict samples older than the window.
+    self._samples.append((now, float(delta), float(running), float(dt)))
+    if self._window_secs > 0:
+      cutoff = now - self._window_secs
+      self._samples = [s for s in self._samples if s[0] >= cutoff]
+    # Per-slot throughput as a ratio of windowed sums (stable vs. per-tick):
+    # total completions divided by total slot-seconds of in-flight work.
+    total_completed = sum(d for (_, d, _, _) in self._samples)
+    total_slot_secs = sum(r * dts for (_, _, r, dts) in self._samples)
+    if total_slot_secs <= 0:
+      # Window is entirely idle (no in-flight requests); nothing to report.
+      return None
+    mu = total_completed / total_slot_secs
+    running_ref = _nearest_rank_percentile(
+        [r for (_, _, r, _) in self._samples], self._running_percentile)
+    reported = mu * running_ref * self._backlog_multiplier
+    return max(float(self._min_value), reported)
 
 
 # Embedded Dynamo runtime defaults proven on the smoke test: etcd discovery,
@@ -512,7 +556,6 @@ class _VLLMModelServer():
       autoscaling_aggregation: str = _VLLM_DEFAULT_AUTOSCALING_AGGREGATION,
       autoscaling_aggregation_window_secs: float = (
           _VLLM_DEFAULT_AUTOSCALING_WINDOW_SECS),
-      autoscaling_backlog_multiplier: float = _VLLM_DEFAULT_BACKLOG_MULTIPLIER,
       load_signal_fn: Optional[Callable[[int], Optional[float]]] = None,
   ):
     self._model_name = model_name
@@ -535,9 +578,18 @@ class _VLLMModelServer():
     # Per-worker message-capacity signal derived from vLLM's request
     # completion rate; see _VLLMCompletionRateSignal. Overridden by
     # load_signal_fn when one is supplied.
-    _backlog_multiplier = float(autoscaling_backlog_multiplier)
+    try:
+      _backlog_multiplier = float(
+          os.environ.get(
+              'VLLM_AUTOSCALING_BACKLOG_MULTIPLIER',
+              _VLLM_DEFAULT_BACKLOG_MULTIPLIER,
+          ))
+    except (TypeError, ValueError):
+      _backlog_multiplier = _VLLM_DEFAULT_BACKLOG_MULTIPLIER
     self._completion_rate_signal = _VLLMCompletionRateSignal(
-        backlog_multiplier=_backlog_multiplier)
+        backlog_multiplier=_backlog_multiplier,
+        window_secs=_VLLM_DEFAULT_AUTOSCALING_WINDOW_SECS,
+    )
     # Publishes the num_loaded_models_<tag> autoscaling signal derived from the
     # vLLM server's live request-concurrency metrics. Started once the server
     # is confirmed up (see start_server). None disables the metric entirely.
